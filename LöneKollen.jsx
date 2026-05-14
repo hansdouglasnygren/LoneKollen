@@ -250,7 +250,26 @@ export default function LöneKollen() {
 
             {/* Summering */}
             <div style={{ ...cardStyle, marginBottom: 14 }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              {/* Pass-räknare */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                {[
+                  ["📋 Pass", days.length],
+                  ["💼 Vardagar", days.filter(d => d.dagTyp === "vardag").length],
+                  ["🛒 Lördagar", days.filter(d => d.dagTyp === "lördag").length],
+                  ["☀️ Söndagar", days.filter(d => d.dagTyp === "söndag").length],
+                  ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length]] : []),
+                ].map(([label, val]) => (
+                  <div key={label} style={{
+                    background: ND, border: `1px solid ${N}`, borderRadius: 8,
+                    padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
+                  }}>
+                    <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
+                    <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
+                    <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{val}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: `1px solid ${N}`, paddingTop: 12, display: "flex", gap: 8, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Brutto</div>
                   <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, fontFamily: "Rajdhani, sans-serif" }}>{fmt(summary.brutto)}</div>
