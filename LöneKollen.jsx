@@ -359,7 +359,7 @@ export default function LöneKollen() {
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(total)}</div>
-                      {ob > 0 && <div style={{ color: "#f5a623", fontSize: 11 }}>OB +{fmt(ob)}</div>}
+                      {prov > 0 && <div style={{ color: "#5577aa", fontSize: 11 }}>prov. {fmt(prov)}</div>}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
