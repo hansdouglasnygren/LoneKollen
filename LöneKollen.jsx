@@ -22,7 +22,19 @@ function calcShiftPay(dagTyp, startMin, endMin, timlön) {
          h(Math.max(startMin, OB2), endMin)            * timlön * 1.7;
 }
 
-function minToHHMM(m) {
+// ─── Rastberäkning (Handels) ───────────────────────────────────────────────
+// < 5h   → ingen rast
+// 5–6.5h → 30 min
+// > 6.5h → 45 min
+function getBreakMin(dagTyp) {
+  return dagTyp === "vardag" ? 45 : 30;
+}
+
+// Wrapper som automatiskt drar av rast innan löneberäkning
+function calcDayPay(dagTyp, startMin, endMin, timlön) {
+  const breakMin = getBreakMin(dagTyp);
+  return calcShiftPay(dagTyp, startMin, endMin - breakMin, timlön);
+}
   const h = Math.floor(m / 60).toString().padStart(2, "0");
   const mm = (m % 60).toString().padStart(2, "0");
   return `${h}:${mm}`;
@@ -49,7 +61,12 @@ const DEF_SETTINGS = {
   timlön: 172,
   skatt: 30,
   semesterLön: true,
-  semesterTyp: "månadsvis", // "månadsvis" | "dagar"
+  semesterTyp: "månadsvis",
+  tbStege: [
+    { snitt: 0,    procent: 3 },
+    { snitt: 5000, procent: 4 },
+    { snitt: 7000, procent: 5 },
+  ],
   defaults: {
     vardag:  { start: 9 * 60 + 45, end: 19 * 60,  prov: 400 },
     lördag:  { start: 10 * 60,      end: 17 * 60, prov: 400 },
@@ -99,6 +116,7 @@ export default function LöneKollen() {
   const [sparkStart, setSparkStart]   = useState(() => settings.defaults?.vardag?.start ?? 9*60+45);
   const [sparkEnd, setSparkEnd]       = useState(() => settings.defaults?.vardag?.end   ?? 19*60);
   const [sparkProv, setSparkProv]     = useState(() => settings.defaults?.vardag?.prov  ?? 400);
+  const [sparkTB, setSparkTB]         = useState("");
   const [earlyMin, setEarlyMin]       = useState(30);
 
   useEffect(() => {
@@ -133,18 +151,37 @@ export default function LöneKollen() {
 
   // ── Summering ────────────────────────────────────────────────────────────
   const summary = useMemo(() => {
-    let baseLön = 0, obLön = 0, prov = 0;
+    let baseLön = 0, obLön = 0, skottTotal = 0;
+    let totalTB = 0, säljDagar = 0;
+
     days.forEach(d => {
-      const normal = (d.endMin - d.startMin) / 60 * settings.timlön;
-      const total  = calcShiftPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+      const breakMin = getBreakMin(d.dagTyp);
+      const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
+      const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
       baseLön += normal;
       obLön   += (total - normal);
-      prov    += (d.provision ?? settings.prov_default);
+
+      if (d.passTyp === "annan") {
+        skottTotal += (d.skott ?? 0);
+      } else {
+        // säljdag (default för gamla pass)
+        totalTB  += (d.tb ?? 0);
+        säljDagar++;
+      }
     });
-    const brutto   = baseLön + obLön + prov;
+
+    const snittTB    = säljDagar > 0 ? totalTB / säljDagar : 0;
+    const stege      = settings.tbStege ?? [];
+    const aktivStege = [...stege].reverse().find(s => snittTB >= s.snitt) ?? stege[0] ?? { procent: 0 };
+    const nästaStege = stege.find(s => s.snitt > snittTB);
+    const tbProv     = totalTB * (aktivStege.procent / 100);
+    const provTotal  = tbProv + skottTotal;
+
+    const brutto   = baseLön + obLön + provTotal;
     const netto    = brutto * (1 - settings.skatt / 100);
     const nettoSem = netto * 1.12;
-    return { baseLön, obLön, prov, brutto, netto, nettoSem };
+    return { baseLön, obLön, tbProv, skottTotal, provTotal, brutto, netto, nettoSem,
+             totalTB, snittTB, säljDagar, aktivStege, nästaStege };
   }, [days, settings]);
 
   // ── Historik ─────────────────────────────────────────────────────────────
@@ -157,7 +194,7 @@ export default function LöneKollen() {
         const ds = months[k]?.days || [];
         let b = 0;
         ds.forEach(d => {
-          b += calcShiftPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+          b += calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
           b += (d.provision ?? settings.prov_default);
         });
         const n = b * (1 - settings.skatt / 100);
@@ -302,12 +339,60 @@ export default function LöneKollen() {
               )}
             </div>
 
+            {/* TB-sektion */}
+            {summary.säljDagar > 0 && (
+              <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid ${GD}` }}>
+                <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>📊 TB & Provision</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <div style={{ flex: 1, background: ND, borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Total TB</div>
+                    <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.totalTB).toLocaleString("sv-SE")} kr</div>
+                  </div>
+                  <div style={{ flex: 1, background: ND, borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Snitt/dag</div>
+                    <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.snittTB).toLocaleString("sv-SE")} kr</div>
+                  </div>
+                </div>
+                <div style={{ background: `${G}15`, border: `1px solid ${GD}`, borderRadius: 10, padding: "10px 14px", marginBottom: summary.nästaStege ? 8 : 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ color: "#5bc58899", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Aktiv serie</div>
+                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{summary.aktivStege.procent}% av TB</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: "#5577aa", fontSize: 10 }}>TB-provision</div>
+                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(summary.tbProv)}</div>
+                    </div>
+                  </div>
+                </div>
+                {summary.nästaStege ? (
+                  <div style={{ color: "#5577aa", fontSize: 12, textAlign: "center", marginTop: 6 }}>
+                    {(summary.nästaStege.snitt - summary.snittTB).toLocaleString("sv-SE")} kr/dag till {summary.nästaStege.procent}%-serien
+                  </div>
+                ) : summary.säljDagar > 0 && (
+                  <div style={{ marginTop: 8, background: `${G}20`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                    <div style={{ color: G, fontSize: 12, fontWeight: 700 }}>🏆 Högsta serien!</div>
+                    <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>
+                      {(summary.snittTB - ((settings.tbStege ?? [])[( settings.tbStege ?? []).length - 2]?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
+                    </div>
+                  </div>
+                )}
+                {summary.skottTotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${N}` }}>
+                    <span style={{ color: "#5577aa", fontSize: 13 }}>Skottpengar</span>
+                    <span style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{fmt(summary.skottTotal)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Uppdelning */}
             <div style={{ ...cardStyle, marginBottom: 18 }}>
               {[
                 ["Baslön", summary.baseLön],
                 ["OB-tillägg", summary.obLön],
-                ["Provision", summary.prov],
+                ["TB-provision", summary.tbProv],
+                ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal]] : []),
               ].map(([label, val], i, arr) => (
                 <div key={label} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -333,13 +418,13 @@ export default function LöneKollen() {
             )}
 
             {[...days].sort((a, b) => a.startMin - b.startMin).map(day => {
-              const meta    = DAG_META[day.dagTyp];
-              const pay     = calcShiftPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
-              const basePay = (day.endMin - day.startMin) / 60 * settings.timlön;
-              const ob      = pay - basePay;
-              const prov    = day.provision ?? settings.prov_default;
-              const total   = pay + prov;
-              const h       = (day.endMin - day.startMin) / 60;
+              const meta     = DAG_META[day.dagTyp];
+              const breakMin = getBreakMin(day.dagTyp);
+              const pay      = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+              const basePay  = ((day.endMin - day.startMin) - breakMin) / 60 * settings.timlön;
+              const prov     = day.provision ?? settings.prov_default;
+              const total    = pay + prov;
+              const h        = (day.endMin - day.startMin) / 60;
 
               return (
                 <div key={day.id} style={{
@@ -354,12 +439,18 @@ export default function LöneKollen() {
                         <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}</div>
                         <div style={{ color: "#5577aa", fontSize: 12 }}>
                           {minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} &nbsp;·&nbsp; {h.toFixed(2).replace(".", ",")}h
+                          {breakMin > 0 && <span style={{ color: "#445" }}> &nbsp;·&nbsp; {breakMin}min rast</span>}
                         </div>
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(total)}</div>
-                      {prov > 0 && <div style={{ color: "#5577aa", fontSize: 11 }}>prov. {fmt(prov)}</div>}
+                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(pay)}</div>
+                      {day.passTyp === "annan"
+                        ? <div style={{ color: "#f5a623", fontSize: 11 }}>skott {fmt(day.skott ?? 0)}</div>
+                        : day.tb > 0
+                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr</div>
+                          : null
+                      }
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -381,22 +472,37 @@ export default function LöneKollen() {
 
           {/* ════════════════ GNISTAN ════════════════ */}
           {tab === "gnistan" && (() => {
+            const sparkBreak  = getBreakMin(sparkDagTyp);
             const clampedNow  = Math.min(Math.max(nowMin, sparkStart), sparkEnd);
             const elapsed     = Math.max(0, clampedNow - sparkStart);
             const totalMin    = Math.max(1, sparkEnd - sparkStart);
             const remaining   = Math.max(0, sparkEnd - clampedNow);
             const progress    = sparkEnd > sparkStart ? elapsed / totalMin : 0;
-            const provSoFar   = sparkProv * (elapsed / totalMin);          // provision fördelas jämnt
-            const earnedSoFar = calcShiftPay(sparkDagTyp, sparkStart, clampedNow, settings.timlön) + provSoFar;
+            const provSoFar   = sparkProv * (elapsed / totalMin);
+            const earnedSoFar = calcShiftPay(sparkDagTyp, sparkStart, Math.max(sparkStart, clampedNow - sparkBreak * (elapsed/totalMin)), settings.timlön) + provSoFar;
             const earnedNetto = earnedSoFar * (1 - settings.skatt / 100);
-            const fullPay     = calcShiftPay(sparkDagTyp, sparkStart, sparkEnd,   settings.timlön) + sparkProv;
+            const fullPay     = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön) + sparkProv;
             const fullNetto   = fullPay * (1 - settings.skatt / 100);
-            const earlyPay    = calcShiftPay(sparkDagTyp, sparkStart, sparkEnd - earlyMin, settings.timlön) + sparkProv * ((totalMin - earlyMin) / totalMin);
+            const earlyPay    = calcDayPay(sparkDagTyp, sparkStart, sparkEnd - earlyMin, settings.timlön) + sparkProv * ((totalMin - earlyMin) / totalMin);
             const lostByLeaving = fullPay - earlyPay;
             const krPerMin    = fullPay / totalMin;
             const krPerMinNetto = fullNetto / totalMin;
             const isWorking   = nowMin >= sparkStart && nowMin < sparkEnd;
             const isAfter     = nowMin >= sparkEnd;
+
+            // ── TB-provision beräkning ──────────────────────────────────────
+            const todayTB      = parseFloat(sparkTB) || 0;
+            const befintligaDagar = days.filter(d => d.passTyp !== "annan");
+            const befintligTB  = befintligaDagar.reduce((s, d) => s + (d.tb ?? 0), 0);
+            const nyTotalTB    = befintligTB + todayTB;
+            const nySäljDagar  = befintligaDagar.length + (todayTB > 0 ? 1 : 0);
+            const nySnitt      = nySäljDagar > 0 ? nyTotalTB / nySäljDagar : 0;
+            const stege        = settings.tbStege ?? [];
+            const aktivTier    = [...stege].reverse().find(s => nySnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
+            const nästaStege   = stege.find(s => s.snitt > nySnitt);
+            const nyProv       = nyTotalTB * (aktivTier.procent / 100);
+            const gammalProv   = befintligTB * (([...stege].reverse().find(s => (befintligaDagar.length > 0 ? befintligTB/befintligaDagar.length : 0) >= s.snitt) ?? stege[0] ?? { procent: 0 }).procent / 100);
+            const tbBidrag     = nyProv - gammalProv;
 
             function SparkDagTypBtn({ typ }) {
               const m = DAG_META[typ];
@@ -440,6 +546,47 @@ export default function LöneKollen() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* TB för dagen */}
+                <div style={{ ...cardStyle, marginBottom: 14 }}>
+                  <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>📊 Dagens TB (kr)</div>
+                  <input
+                    type="number" value={sparkTB} step={500} min={0}
+                    placeholder="Ange ditt TB för dagen..."
+                    onChange={e => setSparkTB(e.target.value)}
+                    style={{ width: "100%", background: ND, border: `1px solid #f5a62355`, color: "#f5a623", borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: todayTB > 0 ? 12 : 0 }}
+                  />
+                  {todayTB > 0 && (
+                    <div style={{ background: `${G}12`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div>
+                          <div style={{ color: "#5577aa", fontSize: 11 }}>Nytt snitt ({nySäljDagar} säljdagar)</div>
+                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(nySnitt).toLocaleString("sv-SE")} kr/dag</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ color: "#5577aa", fontSize: 11 }}>Serie</div>
+                          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{aktivTier.procent}%</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: `1px solid ${N}` }}>
+                        <span style={{ color: "#5577aa", fontSize: 12 }}>Provisionsbidrag idag</span>
+                        <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>+{fmt(Math.max(0, tbBidrag))}</span>
+                      </div>
+                      {nästaStege ? (
+                        <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center", marginTop: 6 }}>
+                          {(nästaStege.snitt - nySnitt).toLocaleString("sv-SE")} kr/dag till {nästaStege.procent}%-serien
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 6, background: `${G}20`, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
+                          <div style={{ color: G, fontSize: 11, fontWeight: 700 }}>🏆 Högsta serien!</div>
+                          <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
+                            {(nySnitt - (stege[stege.length - 2]?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Live-räknare */}
@@ -517,7 +664,7 @@ export default function LöneKollen() {
                   {/* Snabbval */}
                   <div style={{ display:"flex", gap:6 }}>
                     {[15,30,60,120].map(m => {
-                      const loss = Math.max(0, fullPay - calcShiftPay(sparkDagTyp, sparkStart, sparkEnd - m, settings.timlön) - sparkProv);
+                      const loss = Math.max(0, fullPay - calcDayPay(sparkDagTyp, sparkStart, sparkEnd - m, settings.timlön) - sparkProv);
                       return (
                         <button key={m} onClick={() => setEarlyMin(m)} style={{
                           flex:1, padding:"8px 0", background: earlyMin===m ? "#2a0808" : "transparent",
@@ -629,6 +776,9 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
   const [startMin, setStartMin]   = useState(initialDay?.startMin ?? getDefaults("vardag").start ?? 9*60+45);
   const [endMin, setEndMin]       = useState(initialDay?.endMin   ?? getDefaults("vardag").end   ?? 19*60);
   const [prov, setProv]           = useState(initialDay?.provision ?? getDefaults("vardag").prov ?? 400);
+  const [passTyp, setPassTyp]     = useState(initialDay?.passTyp ?? "sälj");
+  const [tb, setTb]               = useState(initialDay?.tb ?? "");
+  const [skott, setSkott]         = useState(initialDay?.skott ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
 
   // Uppdatera default tider vid byte av dagtyp
@@ -640,8 +790,9 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
     }
   }
 
-  const pay     = calcShiftPay(dagTyp, startMin, endMin, settings.timlön);
-  const basePay = (endMin - startMin) / 60 * settings.timlön;
+  const breakMin  = getBreakMin(dagTyp);
+  const pay     = calcDayPay(dagTyp, startMin, endMin, settings.timlön);
+  const basePay = ((endMin - startMin) - breakMin) / 60 * settings.timlön;
   const ob      = pay - basePay;
   const total   = pay + (prov || 0);
 
@@ -723,26 +874,44 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
           <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
         </div>
 
-        {/* Provision */}
-        <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Provision (kr)</div>
-        <input
-          type="number"
-          value={prov}
-          step={50}
-          min={0}
-          onChange={e => setProv(parseFloat(e.target.value) || 0)}
-          style={{
-            width: "100%", background: ND, border: `1px solid ${N}`,
-            color: G, borderRadius: 10, padding: "12px 16px",
-            fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700,
-            marginBottom: 20,
-          }}
-        />
+        {/* Passtyp */}
+        <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Passtyp</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          {[["sälj", "💼 Säljdag", G], ["annan", "🔧 Kassa / Lager", "#f5a623"]].map(([val, label, color]) => (
+            <button key={val} onClick={() => setPassTyp(val)} style={{
+              flex: 1, padding: "12px 8px", border: "none", borderRadius: 10,
+              background: passTyp === val ? color : NC,
+              color: passTyp === val ? "#001435" : "#5577aa",
+              fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {passTyp === "sälj" ? (<>
+          {/* TB */}
+          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>TB (kr)</div>
+          <input
+            type="number" value={tb} step={500} min={0}
+            onChange={e => setTb(parseFloat(e.target.value) || "")}
+            placeholder="0"
+            style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 20 }}
+          />
+        </>) : (<>
+          {/* Skottpengar */}
+          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Skottpengar (kr)</div>
+          <input
+            type="number" value={skott} step={100} min={0}
+            onChange={e => setSkott(parseFloat(e.target.value) || "")}
+            placeholder="0"
+            style={{ width: "100%", background: ND, border: `1px solid #f5a62355`, color: "#f5a623", borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 20 }}
+          />
+        </>)}
 
         {/* Förhandsvisning */}
         <div style={{ background: `${G}10`, border: `1px solid ${GD}`, borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
           <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 6 }}>
             {minToHHMM(startMin)} – {minToHHMM(endMin)} &nbsp;·&nbsp; {((endMin - startMin)/60).toFixed(2).replace(".", ",")} timmar
+            {breakMin > 0 && <span style={{ color: "#f5a623" }}> &nbsp;·&nbsp; {breakMin} min rast</span>}
           </div>
           <div style={{ display: "flex", gap: 16 }}>
             <div>
@@ -753,10 +922,14 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
               <div style={{ color: "#8899cc", fontSize: 11 }}>OB-tillägg</div>
               <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>+{fmt(ob)}</div>
             </div>}
-            <div>
-              <div style={{ color: "#8899cc", fontSize: 11 }}>Provision</div>
-              <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{fmt(prov)}</div>
-            </div>
+            {passTyp === "sälj" && tb > 0 && <div>
+              <div style={{ color: "#8899cc", fontSize: 11 }}>TB</div>
+              <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Number(tb).toLocaleString("sv-SE")} kr</div>
+            </div>}
+            {passTyp === "annan" && skott > 0 && <div>
+              <div style={{ color: "#8899cc", fontSize: 11 }}>Skottpengar</div>
+              <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Number(skott).toLocaleString("sv-SE")} kr</div>
+            </div>}
           </div>
           <div style={{ borderTop: `1px solid ${N}`, marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ color: "#8899cc", fontSize: 12 }}>Totalt detta pass</span>
@@ -785,7 +958,10 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
 
         <button onClick={() => onSave({
           id: initialDay?.id ?? uid(),
-          dagTyp, startMin, endMin, provision: prov,
+          dagTyp, startMin, endMin,
+          passTyp,
+          tb: passTyp === "sälj" ? (parseFloat(tb) || 0) : 0,
+          skott: passTyp === "annan" ? (parseFloat(skott) || 0) : 0,
         })} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
@@ -846,6 +1022,41 @@ function SettingsPanel({ settings, setSettings }) {
           <span style={{ color: "#c8deff", fontSize: 14 }}>Visa semesterlön (+12%)</span>
         </div>
       </div>
+
+      <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Provisionsstege (TB-snitt/dag)</div>
+      <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 10 }}>Justeras varje månad. Provision räknas på total TB × procent.</div>
+      {(settings.tbStege ?? []).map((steg, i) => (
+        <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
+            <input type="number" value={steg.snitt} min={0} step={500}
+              onChange={e => {
+                const updated = settings.tbStege.map((s, j) => j === i ? { ...s, snitt: parseFloat(e.target.value) || 0 } : s);
+                setSettings(p => ({ ...p, tbStege: updated }));
+              }}
+              style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "8px 10px", fontSize: 15, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Procent (%)</div>
+            <input type="number" value={steg.procent} min={0} step={0.5}
+              onChange={e => {
+                const updated = settings.tbStege.map((s, j) => j === i ? { ...s, procent: parseFloat(e.target.value) || 0 } : s);
+                setSettings(p => ({ ...p, tbStege: updated }));
+              }}
+              style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "8px 10px", fontSize: 15, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+            />
+          </div>
+          {i > 0 && (
+            <button onClick={() => setSettings(p => ({ ...p, tbStege: p.tbStege.filter((_, j) => j !== i) }))}
+              style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, marginTop: 18 }}>✕</button>
+          )}
+        </div>
+      ))}
+      <button onClick={() => setSettings(p => ({ ...p, tbStege: [...(p.tbStege ?? []), { snitt: 0, procent: 0 }] }))}
+        style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
+        + Lägg till steg
+      </button>
 
       <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Standardvärden per dagtyp</div>
       <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 14 }}>
