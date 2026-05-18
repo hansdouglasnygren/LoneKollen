@@ -35,6 +35,8 @@ function calcDayPay(dagTyp, startMin, endMin, timlön) {
   const breakMin = getBreakMin(dagTyp);
   return calcShiftPay(dagTyp, startMin, endMin - breakMin, timlön);
 }
+
+function minToHHMM(m) {
   const h = Math.floor(m / 60).toString().padStart(2, "0");
   const mm = (m % 60).toString().padStart(2, "0");
   return `${h}:${mm}`;
