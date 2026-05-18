@@ -111,6 +111,7 @@ export default function LöneKollen() {
   const [tab, setTab]           = useState("mån");
   const [addOpen, setAddOpen]   = useState(false);
   const [editId, setEditId]     = useState(null);
+  const [stegeOpen, setStegeOpen] = useState(false);
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
@@ -134,12 +135,21 @@ export default function LöneKollen() {
 
   const mData  = months[month]  || { days: [] };
   const days   = mData.days || [];
+  const monthStege = mData.tbStege ?? settings.tbStege ?? [];
 
-  function mutateDays(fn) {
+  function mutateMonth(fn) {
     setMonths(prev => {
       const cur = prev[month] || { days: [] };
-      return { ...prev, [month]: { ...cur, days: fn(cur.days || []) } };
+      return { ...prev, [month]: fn(cur) };
     });
+  }
+
+  function mutateDays(fn) {
+    mutateMonth(cur => ({ ...cur, days: fn(cur.days || []) }));
+  }
+
+  function saveMonthStege(stege) {
+    mutateMonth(cur => ({ ...cur, tbStege: stege }));
   }
 
   function saveDay(day) {
@@ -173,7 +183,7 @@ export default function LöneKollen() {
     });
 
     const snittTB    = säljDagar > 0 ? totalTB / säljDagar : 0;
-    const stege      = settings.tbStege ?? [];
+    const stege      = monthStege;
     const aktivStege = [...stege].reverse().find(s => snittTB >= s.snitt) ?? stege[0] ?? { procent: 0 };
     const nästaStege = stege.find(s => s.snitt > snittTB);
     const tbProv     = totalTB * (aktivStege.procent / 100);
@@ -193,12 +203,18 @@ export default function LöneKollen() {
       .sort()
       .slice(-6)
       .map(k => {
-        const ds = months[k]?.days || [];
-        let b = 0;
+        const md   = months[k] || {};
+        const ds   = md.days || [];
+        const stege = md.tbStege ?? settings.tbStege ?? [];
+        let b = 0, totalTB = 0, säljDagar = 0;
         ds.forEach(d => {
           b += calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
-          b += (d.provision ?? settings.prov_default);
+          if (d.passTyp === "annan") { b += (d.skott ?? 0); }
+          else { totalTB += (d.tb ?? 0); säljDagar++; }
         });
+        const snitt = säljDagar > 0 ? totalTB / säljDagar : 0;
+        const aktiv = [...stege].reverse().find(s => snitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
+        b += totalTB * (aktiv.procent / 100);
         const n = b * (1 - settings.skatt / 100);
         return { key: k, brutto: b, netto: n, dagar: ds.length };
       });
@@ -286,6 +302,36 @@ export default function LöneKollen() {
 
           {/* ════════════════ MÅNADSVY ════════════════ */}
           {tab === "mån" && (<>
+
+            {/* Stege-banner om ingen stege är satt för månaden */}
+            {!mData.tbStege && (
+              <div style={{
+                background: "#1a1000", border: "1px solid #f5a62355",
+                borderRadius: 14, padding: "14px 16px", marginBottom: 14,
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+              }}>
+                <div>
+                  <div style={{ color: "#f5a623", fontWeight: 700, fontSize: 14 }}>⚠️ Ingen provisionsstege satt</div>
+                  <div style={{ color: "#5577aa", fontSize: 12, marginTop: 3 }}>Sätt månadens stege för korrekt provisionsberäkning</div>
+                </div>
+                <button onClick={() => setStegeOpen(true)} style={{
+                  background: "#f5a623", border: "none", borderRadius: 10,
+                  color: "#001435", fontWeight: 700, fontSize: 13,
+                  padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
+                  fontFamily: "Outfit, sans-serif",
+                }}>Sätt stege</button>
+              </div>
+            )}
+
+            {mData.tbStege && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                <button onClick={() => setStegeOpen(true)} style={{
+                  background: "transparent", border: `1px solid ${N}`,
+                  borderRadius: 8, color: "#5577aa", fontSize: 12,
+                  padding: "5px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                }}>✏️ Ändra stege</button>
+              </div>
+            )}
 
             {/* Summering */}
             <div style={{ ...cardStyle, marginBottom: 14 }}>
@@ -752,6 +798,15 @@ export default function LöneKollen() {
       </div>
 
       {/* ════════════════ LÄGG TILL/REDIGERA-MODAL ════════════════ */}
+      {stegeOpen && (
+        <StegeModal
+          initialStege={mData.tbStege ?? settings.tbStege ?? []}
+          month={month}
+          onSave={stege => { saveMonthStege(stege); setStegeOpen(false); }}
+          onCancel={() => setStegeOpen(false)}
+        />
+      )}
+
       {addOpen && (
         <DayForm
           settings={settings}
@@ -767,6 +822,68 @@ export default function LöneKollen() {
         />
       )}
     </>
+  );
+}
+
+// ─── Stege-modal ──────────────────────────────────────────────────────────
+function StegeModal({ initialStege, month, onSave, onCancel }) {
+  const [stege, setStege] = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
+
+  function updateSteg(i, field, val) {
+    setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 100 }}>
+      <div style={{
+        width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0",
+        padding: "20px 18px 40px", animation: "slideUp .25s ease",
+        maxHeight: "85vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provisionsstege</div>
+          <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 20, textTransform: "capitalize" }}>
+          {new Date(month + "-01").toLocaleString("sv-SE", { month: "long", year: "numeric" })}
+        </div>
+
+        {stege.map((s, i) => (
+          <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
+              <input type="number" value={s.snitt} min={0} step={500}
+                onChange={e => updateSteg(i, "snitt", e.target.value)}
+                disabled={i === 0}
+                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: i === 0 ? "#445" : G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Procent (%)</div>
+              <input type="number" value={s.procent} min={0} step={0.5}
+                onChange={e => updateSteg(i, "procent", e.target.value)}
+                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            {i > 0 && (
+              <button onClick={() => setStege(prev => prev.filter((_, j) => j !== i))}
+                style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, marginTop: 18 }}>✕</button>
+            )}
+          </div>
+        ))}
+
+        <button onClick={() => setStege(prev => [...prev, { snitt: 0, procent: 0 }])}
+          style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
+          + Lägg till steg
+        </button>
+
+        <button onClick={() => onSave(stege)} style={{
+          width: "100%", padding: 16, background: G, border: "none",
+          borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        }}>Spara stege</button>
+      </div>
+    </div>
   );
 }
 
