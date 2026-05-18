@@ -114,6 +114,10 @@ export default function LöneKollen() {
   const [stegeOpen, setStegeOpen] = useState(false);
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
+  const [sparkTab, setSparkTab]       = useState("live");
+  const [dagsmål, setDagsmål]         = useState(10000);
+  const [passKvar, setPassKvar]       = useState(5);
+  const [vadomTB, setVadomTB]         = useState("");
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
   const [sparkDagTyp, setSparkDagTyp] = useState("vardag");
   const [sparkStart, setSparkStart]   = useState(() => settings.defaults?.vardag?.start ?? 9*60+45);
@@ -464,37 +468,6 @@ export default function LöneKollen() {
               ))}
             </div>
 
-          {/* Flytta pass-knapp */}
-            {days.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <button onClick={() => {
-                  const target = addMonths(month, -1);
-                  if (!window.confirm(`Flytta alla ${days.length} pass från ${fmtMonth(month)} till ${fmtMonth(target)}?`)) return;
-                  setMonths(prev => {
-                    const curDays = prev[month]?.days ?? [];
-                    const curStege = prev[month]?.tbStege;
-                    const targetExisting = prev[target] ?? { days: [] };
-                    return {
-                      ...prev,
-                      [target]: {
-                        ...targetExisting,
-                        days: [...(targetExisting.days ?? []), ...curDays],
-                        ...(curStege && !targetExisting.tbStege ? { tbStege: curStege } : {}),
-                      },
-                      [month]: { days: [] },
-                    };
-                  });
-                  setMonth(target);
-                }} style={{
-                  width: "100%", padding: "11px 0",
-                  background: "transparent", border: "1px solid #334",
-                  borderRadius: 12, color: "#5577aa", cursor: "pointer",
-                  fontSize: 13, fontFamily: "Outfit, sans-serif",
-                }}>
-                  ↩ Flytta alla pass till {fmtMonth(addMonths(month, -1))}
-                </button>
-              </div>
-            )}
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
               {days.length} pass registrerade
             </div>
@@ -561,236 +534,435 @@ export default function LöneKollen() {
 
           {/* ════════════════ GNISTAN ════════════════ */}
           {tab === "gnistan" && (() => {
-            const sparkBreak  = getBreakMin(sparkDagTyp);
-            const clampedNow  = Math.min(Math.max(nowMin, sparkStart), sparkEnd);
-            const elapsed     = Math.max(0, clampedNow - sparkStart);
-            const totalMin    = Math.max(1, sparkEnd - sparkStart);
-            const remaining   = Math.max(0, sparkEnd - clampedNow);
-            const progress    = sparkEnd > sparkStart ? elapsed / totalMin : 0;
-            const provSoFar   = sparkProv * (elapsed / totalMin);
-            const earnedSoFar = calcShiftPay(sparkDagTyp, sparkStart, Math.max(sparkStart, clampedNow - sparkBreak * (elapsed/totalMin)), settings.timlön) + provSoFar;
-            const earnedNetto = earnedSoFar * (1 - settings.skatt / 100);
-            const fullPay     = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön) + sparkProv;
-            const fullNetto   = fullPay * (1 - settings.skatt / 100);
-            const earlyPay    = calcDayPay(sparkDagTyp, sparkStart, sparkEnd - earlyMin, settings.timlön) + sparkProv * ((totalMin - earlyMin) / totalMin);
+            // ── Gemensamma beräkningar ───────────────────────────────────
+            const sparkBreak    = getBreakMin(sparkDagTyp);
+            const clampedNow    = Math.min(Math.max(nowMin, sparkStart), sparkEnd);
+            const elapsed       = Math.max(0, clampedNow - sparkStart);
+            const totalMin      = Math.max(1, sparkEnd - sparkStart);
+            const remaining     = Math.max(0, sparkEnd - clampedNow);
+            const progress      = sparkEnd > sparkStart ? elapsed / totalMin : 0;
+            const provSoFar     = sparkProv * (elapsed / totalMin);
+            const earnedSoFar   = calcShiftPay(sparkDagTyp, sparkStart, Math.max(sparkStart, clampedNow - sparkBreak*(elapsed/totalMin)), settings.timlön) + provSoFar;
+            const earnedNetto   = earnedSoFar * (1 - settings.skatt / 100);
+            const fullPay       = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön) + sparkProv;
+            const fullNetto     = fullPay * (1 - settings.skatt / 100);
+            const earlyPay      = calcDayPay(sparkDagTyp, sparkStart, sparkEnd - earlyMin, settings.timlön) + sparkProv*((totalMin-earlyMin)/totalMin);
             const lostByLeaving = fullPay - earlyPay;
-            const krPerMin    = fullPay / totalMin;
+            const krPerMin      = fullPay / totalMin;
             const krPerMinNetto = fullNetto / totalMin;
-            const isWorking   = nowMin >= sparkStart && nowMin < sparkEnd;
-            const isAfter     = nowMin >= sparkEnd;
+            const isWorking     = nowMin >= sparkStart && nowMin < sparkEnd;
+            const isAfter       = nowMin >= sparkEnd;
 
-            // ── TB-provision beräkning ──────────────────────────────────────
-            const todayTB      = parseFloat(sparkTB) || 0;
-            const befintligaDagar = days.filter(d => d.passTyp !== "annan");
-            const befintligTB  = befintligaDagar.reduce((s, d) => s + (d.tb ?? 0), 0);
-            const nyTotalTB    = befintligTB + todayTB;
-            const nySäljDagar  = befintligaDagar.length + (todayTB > 0 ? 1 : 0);
-            const nySnitt      = nySäljDagar > 0 ? nyTotalTB / nySäljDagar : 0;
-            const stege        = settings.tbStege ?? [];
-            const aktivTier    = [...stege].reverse().find(s => nySnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
-            const nästaStege   = stege.find(s => s.snitt > nySnitt);
-            const nyProv       = nyTotalTB * (aktivTier.procent / 100);
-            const gammalProv   = befintligTB * (([...stege].reverse().find(s => (befintligaDagar.length > 0 ? befintligTB/befintligaDagar.length : 0) >= s.snitt) ?? stege[0] ?? { procent: 0 }).procent / 100);
-            const tbBidrag     = nyProv - gammalProv;
+            // ── TB-provision beräkning ───────────────────────────────────
+            const todayTB       = parseFloat(sparkTB) || 0;
+            const säljDays      = days.filter(d => d.passTyp !== "annan");
+            const befintligTB   = säljDays.reduce((s,d) => s + (d.tb ?? 0), 0);
+            const nyTotalTB     = befintligTB + todayTB;
+            const nySäljDagar   = säljDays.length + (todayTB > 0 ? 1 : 0);
+            const nySnitt       = nySäljDagar > 0 ? nyTotalTB / nySäljDagar : 0;
+            const stege         = monthStege;
+            const aktivTier     = [...stege].reverse().find(s => nySnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
+            const nästaStegeTB  = stege.find(s => s.snitt > nySnitt);
+            const nyProv        = nyTotalTB * (aktivTier.procent / 100);
+            const gammalSnitt   = säljDays.length > 0 ? befintligTB / säljDays.length : 0;
+            const gammalTier    = [...stege].reverse().find(s => gammalSnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
+            const gammalProv    = befintligTB * (gammalTier.procent / 100);
+            const tbBidrag      = nyProv - gammalProv;
 
-            function SparkDagTypBtn({ typ }) {
-              const m = DAG_META[typ];
-              return (
-                <button onClick={() => {
-                  setSparkDagTyp(typ);
-                  const d = settings.defaults?.[typ];
-                  if (d) { setSparkStart(d.start); setSparkEnd(d.end); setSparkProv(d.prov ?? 400); }
-                }} style={{
-                  flex: 1, padding: "8px 4px", border: "none", borderRadius: 8,
-                  background: sparkDagTyp === typ ? m.color : NC,
-                  color: sparkDagTyp === typ ? "#001435" : "#5577aa",
-                  fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                }}>{m.emoji} {m.label}</button>
-              );
+            // ── Tempo & mål-beräkningar ──────────────────────────────────
+            const curTotalTB    = summary.totalTB;
+            const curSäljDagar  = summary.säljDagar;
+            const curSnitt      = summary.snittTB;
+            const nästaStege_   = summary.nästaStege;
+            const aktivStege_   = summary.aktivStege;
+
+            // Vad behövs per pass för nästa stege?
+            const totalPassKvar = Math.max(1, passKvar);
+            const neededSnittNästa = nästaStege_?.snitt ?? 0;
+            const neededTBNästa  = Math.max(0, neededSnittNästa * (curSäljDagar + totalPassKvar) - curTotalTB);
+            const neededPerPassNästa = neededTBNästa / totalPassKvar;
+
+            // Hur mycket kan snittet sjunka? (buffert till nedre stege)
+            const lowerStege    = [...stege].reverse().find(s => s.snitt < aktivStege_?.snitt);
+            const bufferPerPass = lowerStege
+              ? ((curSnitt - lowerStege.snitt) * curSäljDagar) / Math.max(1, curSäljDagar)
+              : null;
+
+            // Bästa pass
+            const bestPass      = [...säljDays].sort((a,b) => (b.tb??0) - (a.tb??0))[0];
+
+            // Streak — antal pass i rad från slutet med TB >= dagsmål
+            const sortedPasses  = [...säljDays];
+            let streak = 0;
+            for (let i = sortedPasses.length - 1; i >= 0; i--) {
+              if ((sortedPasses[i].tb ?? 0) >= dagsmål) streak++;
+              else break;
             }
+            const passedGoal    = säljDays.filter(d => (d.tb ?? 0) >= dagsmål).length;
+
+            // Vad om... scenario
+            const vadomVal      = parseFloat(vadomTB) || 0;
+            const vadomNyTotal  = curTotalTB + vadomVal;
+            const vadomNySälj   = curSäljDagar + (vadomVal > 0 ? 1 : 0);
+            const vadomSnitt    = vadomNySälj > 0 ? vadomNyTotal / vadomNySälj : 0;
+            const vadomTier     = [...stege].reverse().find(s => vadomSnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
+            const vadomProv     = vadomNyTotal * (vadomTier.procent / 100);
+            const vadomDelta    = vadomProv - (curTotalTB * (aktivStege_?.procent ?? 0) / 100);
+            const tierChanged   = vadomTier.procent !== (aktivStege_?.procent ?? 0);
+
+            const subTabs = [
+              ["live", "⚡ Live"],
+              ["mål",  "🎯 Mål"],
+              ["tempo","📊 Tempo"],
+              ["vadom","💰 Vad om"],
+              ["stats","🏆 Stats"],
+              ["fakta","🧠 Fakta"],
+            ];
 
             return (
               <div>
-                {/* Dagtyp & tider */}
-                <div style={{ ...cardStyle, marginBottom: 14 }}>
-                  <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Dagens pass</div>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-                    {["vardag","lördag","söndag","röd"].map(t => <SparkDagTypBtn key={t} typ={t} />)}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    {[["Start", sparkStart, setSparkStart], ["Slut", sparkEnd, setSparkEnd]].map(([lbl, val, setter]) => (
-                      <div key={lbl}>
-                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{lbl}</div>
-                        <input type="time" value={minToHHMM(val)}
-                          onChange={e => { const [h,m] = e.target.value.split(":").map(Number); setter(h*60+m); }}
-                          style={{ width:"100%", background: ND, border:`1px solid ${N}`, color:"#f5a623", borderRadius:8, padding:"8px 6px", fontSize:14, fontFamily:"Rajdhani, sans-serif", fontWeight:700, colorScheme:"dark" }}
-                        />
-                      </div>
-                    ))}
-                    <div>
-                      <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prov.</div>
-                      <input type="number" value={sparkProv} step={50} min={0}
-                        onChange={e => setSparkProv(parseFloat(e.target.value)||0)}
-                        style={{ width:"100%", background: ND, border:`1px solid ${N}`, color:"#f5a623", borderRadius:8, padding:"8px 6px", fontSize:14, fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}
-                      />
-                    </div>
-                  </div>
+                {/* Sub-tab bar */}
+                <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
+                  {subTabs.map(([key, label]) => (
+                    <button key={key} onClick={() => setSparkTab(key)} style={{
+                      flexShrink: 0, padding: "7px 12px", border: "none", borderRadius: 20,
+                      background: sparkTab === key ? "#f5a623" : NC,
+                      color: sparkTab === key ? "#001435" : "#5577aa",
+                      fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                      whiteSpace: "nowrap",
+                    }}>{label}</button>
+                  ))}
                 </div>
 
-                {/* TB för dagen */}
-                <div style={{ ...cardStyle, marginBottom: 14 }}>
-                  <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>📊 Dagens TB (kr)</div>
-                  <input
-                    type="number" value={sparkTB} step={500} min={0}
-                    placeholder="Ange ditt TB för dagen..."
-                    onChange={e => setSparkTB(e.target.value)}
-                    style={{ width: "100%", background: ND, border: `1px solid #f5a62355`, color: "#f5a623", borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: todayTB > 0 ? 12 : 0 }}
-                  />
-                  {todayTB > 0 && (
-                    <div style={{ background: `${G}12`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <div>
-                          <div style={{ color: "#5577aa", fontSize: 11 }}>Nytt snitt ({nySäljDagar} säljdagar)</div>
-                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(nySnitt).toLocaleString("sv-SE")} kr/dag</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ color: "#5577aa", fontSize: 11 }}>Serie</div>
-                          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{aktivTier.procent}%</div>
-                        </div>
+                {/* ── LIVE ── */}
+                {sparkTab === "live" && (
+                  <div>
+                    {/* Pass-inställningar */}
+                    <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+                      <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Dagens pass</div>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                        {["vardag","lördag","söndag","röd"].map(typ => {
+                          const m = DAG_META[typ];
+                          return (
+                            <button key={typ} onClick={() => {
+                              setSparkDagTyp(typ);
+                              const d = settings.defaults?.[typ];
+                              if (d) { setSparkStart(d.start); setSparkEnd(d.end); setSparkProv(d.prov ?? 400); }
+                            }} style={{
+                              flex: 1, padding: "8px 4px", border: "none", borderRadius: 8,
+                              background: sparkDagTyp === typ ? m.color : ND,
+                              color: sparkDagTyp === typ ? "#001435" : "#5577aa",
+                              fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                            }}>{m.emoji} {m.label}</button>
+                          );
+                        })}
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: `1px solid ${N}` }}>
-                        <span style={{ color: "#5577aa", fontSize: 12 }}>Provisionsbidrag idag</span>
-                        <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>+{fmt(Math.max(0, tbBidrag))}</span>
-                      </div>
-                      {nästaStege ? (
-                        <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-                          {(nästaStege.snitt - nySnitt).toLocaleString("sv-SE")} kr/dag till {nästaStege.procent}%-serien
-                        </div>
-                      ) : (
-                        <div style={{ marginTop: 6, background: `${G}20`, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
-                          <div style={{ color: G, fontSize: 11, fontWeight: 700 }}>🏆 Högsta serien!</div>
-                          <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
-                            {(nySnitt - (stege[stege.length - 2]?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                        {[["Start", sparkStart, setSparkStart], ["Slut", sparkEnd, setSparkEnd]].map(([lbl, val, setter]) => (
+                          <div key={lbl}>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{lbl}</div>
+                            <input type="time" value={minToHHMM(val)}
+                              onChange={e => { const [h,m] = e.target.value.split(":").map(Number); setter(h*60+m); }}
+                              style={{ width:"100%", background: ND, border:`1px solid ${N}`, color:"#f5a623", borderRadius:8, padding:"8px 6px", fontSize:14, fontFamily:"Rajdhani, sans-serif", fontWeight:700, colorScheme:"dark" }}
+                            />
                           </div>
+                        ))}
+                        <div>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prov.</div>
+                          <input type="number" value={sparkProv} step={50} min={0}
+                            onChange={e => setSparkProv(parseFloat(e.target.value)||0)}
+                            style={{ width:"100%", background: ND, border:`1px solid ${N}`, color:"#f5a623", borderRadius:8, padding:"8px 6px", fontSize:14, fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* TB för dagen */}
+                    <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+                      <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>📊 Dagens TB (kr)</div>
+                      <input type="number" value={sparkTB} step={500} min={0} placeholder="Ange ditt TB..."
+                        onChange={e => setSparkTB(e.target.value)}
+                        style={{ width:"100%", background: ND, border:`1px solid #f5a62355`, color:"#f5a623", borderRadius:10, padding:"12px 16px", fontSize:20, fontFamily:"Rajdhani, sans-serif", fontWeight:700, marginBottom: todayTB > 0 ? 12 : 0 }}
+                      />
+                      {todayTB > 0 && (
+                        <div style={{ background:`${G}12`, border:`1px solid ${GD}`, borderRadius:10, padding:"12px 14px", marginTop: 8 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                            <div>
+                              <div style={{ color:"#5577aa", fontSize:11 }}>Nytt snitt ({nySäljDagar} dagar)</div>
+                              <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{Math.round(nySnitt).toLocaleString("sv-SE")} kr/dag</div>
+                            </div>
+                            <div style={{ textAlign:"right" }}>
+                              <div style={{ color:"#5577aa", fontSize:11 }}>Serie</div>
+                              <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{aktivTier.procent}%</div>
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", justifyContent:"space-between", paddingTop:8, borderTop:`1px solid ${N}` }}>
+                            <span style={{ color:"#5577aa", fontSize:12 }}>Provisionsbidrag idag</span>
+                            <span style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:16 }}>+{fmt(Math.max(0, tbBidrag))}</span>
+                          </div>
+                          {nästaStegeTB ? (
+                            <div style={{ color:"#5577aa", fontSize:11, textAlign:"center", marginTop:6 }}>
+                              {(nästaStegeTB.snitt - nySnitt).toLocaleString("sv-SE")} kr/dag till {nästaStegeTB.procent}%-serien
+                            </div>
+                          ) : (
+                            <div style={{ marginTop:6, background:`${G}20`, borderRadius:8, padding:"6px 10px", textAlign:"center" }}>
+                              <div style={{ color:G, fontSize:11, fontWeight:700 }}>🏆 Högsta serien!</div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* Live-räknare */}
-                <div style={{
-                  background: isWorking ? "#0d1f00" : NC,
-                  border: `2px solid ${isWorking ? "#f5a623" : "#334"}`,
-                  borderRadius: 20, padding: "20px 18px", marginBottom: 14,
-                  textAlign: "center",
-                }}>
-                  {isAfter ? (
-                    <>
-                      <div style={{ fontSize: 32, marginBottom: 6 }}>✅</div>
-                      <div style={{ color: G, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Passet är klart!</div>
-                      <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 32 }}>{fmt(fullPay)}</div>
-                      <div style={{ color: "#5577aa", fontSize: 12, marginTop: 4 }}>intjänat detta pass</div>
-                    </>
-                  ) : isWorking ? (
-                    <>
-                      <div style={{ color: "#f5a62399", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 2, marginBottom: 8 }}>⚡ Tjänat hittills</div>
-                      <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 42, lineHeight: 1 }}>
-                        {Math.round(earnedNetto).toLocaleString("sv-SE")} kr
-                      </div>
-                      <div style={{ color: "#5577aa", fontSize: 12, marginTop: 4 }}>efter skatt ({settings.skatt}%) · brutto {Math.round(earnedSoFar).toLocaleString("sv-SE")} kr</div>
-                      <div style={{ color: "#5577aa", fontSize: 12, margin: "6px 0 12px" }}>
-                        {Math.floor(elapsed/60)}h {Math.round(elapsed%60)}min jobbat · {Math.floor(remaining/60)}h {Math.round(remaining%60)}min kvar
-                      </div>
-                      {/* Progress bar */}
-                      <div style={{ height: 8, background: "#001435", borderRadius: 4, overflow:"hidden", marginBottom: 10 }}>
-                        <div style={{ height:"100%", borderRadius:4, background:"linear-gradient(90deg,#f5a623,#5bc500)", width:`${progress*100}%`, transition:"width 1s linear" }} />
-                      </div>
-                      <div style={{ color: "#5577aa", fontSize: 12 }}>
-                        ≈ {(krPerMinNetto).toFixed(2)} kr/min netto &nbsp;·&nbsp; {fmt(krPerMinNetto*60)}/timme
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>🕐</div>
-                      <div style={{ color: "#4466aa", fontSize: 14 }}>Passet börjar {minToHHMM(sparkStart)}</div>
-                      <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 26, marginTop: 8 }}>{fmt(fullPay)}</div>
-                      <div style={{ color: "#5577aa", fontSize: 12 }}>förväntat för hela passet</div>
-                    </>
-                  )}
-                </div>
+                    {/* Live-räknare */}
+                    <div style={{ background: isWorking ? "#0d1f00" : NC, border:`2px solid ${isWorking ? "#f5a623" : "#334"}`, borderRadius:20, padding:"20px 18px", marginBottom:14, textAlign:"center" }}>
+                      {isAfter ? (<>
+                        <div style={{ fontSize:32, marginBottom:6 }}>✅</div>
+                        <div style={{ color:G, fontSize:13, fontWeight:600, marginBottom:4 }}>Passet är klart!</div>
+                        <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:32 }}>{fmt(fullNetto)}</div>
+                        <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>efter skatt · brutto {fmt(fullPay)}</div>
+                      </>) : isWorking ? (<>
+                        <div style={{ color:"#f5a62399", fontSize:11, fontWeight:600, textTransform:"uppercase", letterSpacing:2, marginBottom:8 }}>⚡ Tjänat hittills</div>
+                        <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:42, lineHeight:1 }}>{Math.round(earnedNetto).toLocaleString("sv-SE")} kr</div>
+                        <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>efter skatt · brutto {Math.round(earnedSoFar).toLocaleString("sv-SE")} kr</div>
+                        <div style={{ color:"#5577aa", fontSize:12, margin:"6px 0 12px" }}>{Math.floor(elapsed/60)}h {Math.round(elapsed%60)}min jobbat · {Math.floor(remaining/60)}h {Math.round(remaining%60)}min kvar</div>
+                        <div style={{ height:8, background:"#001435", borderRadius:4, overflow:"hidden", marginBottom:10 }}>
+                          <div style={{ height:"100%", borderRadius:4, background:"linear-gradient(90deg,#f5a623,#5bc500)", width:`${progress*100}%`, transition:"width 1s linear" }} />
+                        </div>
+                        <div style={{ color:"#5577aa", fontSize:12 }}>≈ {krPerMinNetto.toFixed(2)} kr/min netto · {fmt(krPerMinNetto*60)}/timme</div>
+                      </>) : (<>
+                        <div style={{ fontSize:28, marginBottom:8 }}>🕐</div>
+                        <div style={{ color:"#4466aa", fontSize:14 }}>Passet börjar {minToHHMM(sparkStart)}</div>
+                        <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:26, marginTop:8 }}>{fmt(fullNetto)}</div>
+                        <div style={{ color:"#5577aa", fontSize:12 }}>förväntat netto för hela passet</div>
+                      </>)}
+                    </div>
 
-                {/* Vad kostar det att gå hem tidigt? */}
-                <div style={{ ...cardStyle, marginBottom: 14 }}>
-                  <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
-                    💸 Vad förlorar du på att gå hem tidigt?
-                  </div>
-                  {/* Stepper */}
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom: 16 }}>
-                    <button onClick={() => setEarlyMin(m => Math.max(15, m-15))} style={{
-                      width:44, height:44, borderRadius:"12px 0 0 12px", background:"#f5a62322",
-                      border:"1px solid #f5a62355", color:"#f5a623", fontSize:22, fontWeight:900, cursor:"pointer",
-                    }}>−</button>
-                    <div style={{
-                      width:100, height:44, background: ND, display:"flex", alignItems:"center", justifyContent:"center",
-                      border:"1px solid #f5a62355", borderLeft:"none", borderRight:"none",
-                      color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:20,
-                    }}>{earlyMin} min</div>
-                    <button onClick={() => setEarlyMin(m => Math.min(240, m+15))} style={{
-                      width:44, height:44, borderRadius:"0 12px 12px 0", background:"#f5a62322",
-                      border:"1px solid #f5a62355", color:"#f5a623", fontSize:22, fontWeight:900, cursor:"pointer",
-                    }}>+</button>
-                  </div>
-
-                  <div style={{ background:"#2a0808", border:"1px solid #aa2222", borderRadius:12, padding:"14px 16px", marginBottom:12, textAlign:"center" }}>
-                    <div style={{ color:"#cc6666", fontSize:11, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Du förlorar</div>
-                    <div style={{ color:"#ff6666", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:34 }}>−{fmt(Math.max(0, lostByLeaving))}</div>
-                    <div style={{ color:"#cc6666", fontSize:12, marginTop:4 }}>
-                      om du går hem {earlyMin} min tidigt ({minToHHMM(Math.max(sparkStart, sparkEnd - earlyMin))})
+                    {/* Gå hem tidigt */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:14 }}>💸 Vad förlorar du på att gå hem tidigt?</div>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:16 }}>
+                        <button onClick={() => setEarlyMin(m => Math.max(15, m-15))} style={{ width:44, height:44, borderRadius:"12px 0 0 12px", background:"#f5a62322", border:"1px solid #f5a62355", color:"#f5a623", fontSize:22, fontWeight:900, cursor:"pointer" }}>−</button>
+                        <div style={{ width:100, height:44, background:ND, display:"flex", alignItems:"center", justifyContent:"center", border:"1px solid #f5a62355", borderLeft:"none", borderRight:"none", color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:20 }}>{earlyMin} min</div>
+                        <button onClick={() => setEarlyMin(m => Math.min(240, m+15))} style={{ width:44, height:44, borderRadius:"0 12px 12px 0", background:"#f5a62322", border:"1px solid #f5a62355", color:"#f5a623", fontSize:22, fontWeight:900, cursor:"pointer" }}>+</button>
+                      </div>
+                      <div style={{ background:"#2a0808", border:"1px solid #aa2222", borderRadius:12, padding:"14px 16px", marginBottom:12, textAlign:"center" }}>
+                        <div style={{ color:"#cc6666", fontSize:11, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Du förlorar</div>
+                        <div style={{ color:"#ff6666", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:34 }}>−{fmt(Math.max(0, lostByLeaving))}</div>
+                        <div style={{ color:"#cc6666", fontSize:12, marginTop:4 }}>om du går hem {earlyMin} min tidigt ({minToHHMM(Math.max(sparkStart, sparkEnd-earlyMin))})</div>
+                      </div>
+                      <div style={{ display:"flex", gap:6 }}>
+                        {[15,30,60,120].map(m => {
+                          const loss = Math.max(0, fullPay - calcDayPay(sparkDagTyp, sparkStart, sparkEnd-m, settings.timlön) - sparkProv);
+                          return (
+                            <button key={m} onClick={() => setEarlyMin(m)} style={{ flex:1, padding:"8px 0", background: earlyMin===m ? "#2a0808" : "transparent", border:`1px solid ${earlyMin===m ? "#aa2222" : "#334"}`, borderRadius:8, cursor:"pointer", fontFamily:"Outfit, sans-serif" }}>
+                              <div style={{ color: earlyMin===m ? "#ff6666" : "#5577aa", fontSize:10, fontWeight:700 }}>{m}min</div>
+                              <div style={{ color: earlyMin===m ? "#ff4444" : "#334", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:12 }}>−{Math.round(loss).toLocaleString("sv-SE")}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  {/* Snabbval */}
-                  <div style={{ display:"flex", gap:6 }}>
-                    {[15,30,60,120].map(m => {
-                      const loss = Math.max(0, fullPay - calcDayPay(sparkDagTyp, sparkStart, sparkEnd - m, settings.timlön) - sparkProv);
-                      return (
-                        <button key={m} onClick={() => setEarlyMin(m)} style={{
-                          flex:1, padding:"8px 0", background: earlyMin===m ? "#2a0808" : "transparent",
-                          border:`1px solid ${earlyMin===m ? "#aa2222" : "#334"}`,
-                          borderRadius:8, cursor:"pointer", fontFamily:"Outfit, sans-serif",
-                        }}>
-                          <div style={{ color: earlyMin===m ? "#ff6666" : "#5577aa", fontSize:10, fontWeight:700 }}>{m}min</div>
-                          <div style={{ color: earlyMin===m ? "#ff4444" : "#334", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:12 }}>−{Math.round(loss).toLocaleString("sv-SE")}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                {/* ── MÅL ── */}
+                {sparkTab === "mål" && (
+                  <div>
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🎯 Pass kvar denna månad</div>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:16 }}>
+                        <button onClick={() => setPassKvar(p => Math.max(1,p-1))} style={{ width:44, height:44, borderRadius:"12px 0 0 12px", background:G, border:"none", color:"#001435", fontSize:22, fontWeight:900, cursor:"pointer" }}>−</button>
+                        <div style={{ width:80, height:44, background:ND, display:"flex", alignItems:"center", justifyContent:"center", border:`1px solid ${N}`, borderLeft:"none", borderRight:"none", color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:24 }}>{passKvar}</div>
+                        <button onClick={() => setPassKvar(p => p+1)} style={{ width:44, height:44, borderRadius:"0 12px 12px 0", background:G, border:"none", color:"#001435", fontSize:22, fontWeight:900, cursor:"pointer" }}>+</button>
+                      </div>
 
-                {/* Snabbfakta */}
-                <div style={{ ...cardStyle }}>
-                  <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>🧠 Snabbfakta</div>
-                  {[
-                    ["Per minut (netto)", `${(krPerMinNetto).toFixed(2)} kr`],
-                    ["Per timme (netto)", fmt(krPerMinNetto*60)],
-                    ["Per timme (brutto)", fmt(krPerMin*60)],
-                    ["En kaffe (32 kr)", `${Math.ceil(32/krPerMinNetto)} min jobb`],
-                    ["En lunch (120 kr)", `${Math.ceil(120/krPerMinNetto)} min jobb`],
-                    ["Hela passet netto", fmt(fullNetto)],
-                    ["Hela passet brutto", fmt(fullPay)],
-                  ].map(([label, val]) => (
-                    <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"7px 0", borderBottom:`1px solid ${N}` }}>
-                      <span style={{ color:"#5577aa", fontSize:13 }}>{label}</span>
-                      <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:14 }}>{val}</span>
+                      {nästaStege_ ? (<>
+                        <div style={{ background:`${G}15`, border:`1px solid ${GD}`, borderRadius:12, padding:"16px", marginBottom:12, textAlign:"center" }}>
+                          <div style={{ color:"#5bc58899", fontSize:11, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Du behöver i snitt per pass</div>
+                          <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:36 }}>{Math.ceil(neededPerPassNästa).toLocaleString("sv-SE")} kr</div>
+                          <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>TB för att nå {nästaStege_.procent}%-serien</div>
+                        </div>
+                        {/* Progress bar mot nästa stege */}
+                        <div style={{ marginBottom:8 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                            <span style={{ color:"#5577aa", fontSize:11 }}>Nuläge: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span>
+                            <span style={{ color:"#5577aa", fontSize:11 }}>Mål: {nästaStege_.snitt.toLocaleString("sv-SE")} kr/dag</span>
+                          </div>
+                          <div style={{ height:10, background:ND, borderRadius:5, overflow:"hidden" }}>
+                            <div style={{ height:"100%", borderRadius:5, background:`linear-gradient(90deg,${G},#f5a623)`, width:`${Math.min(100,(curSnitt/nästaStege_.snitt)*100)}%`, transition:"width .4s" }} />
+                          </div>
+                          <div style={{ color:G, fontSize:12, textAlign:"center", marginTop:6, fontWeight:700 }}>
+                            {Math.round((curSnitt/nästaStege_.snitt)*100)}% av vägen dit
+                          </div>
+                        </div>
+                      </>) : (
+                        <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:12, padding:"20px", textAlign:"center" }}>
+                          <div style={{ fontSize:32, marginBottom:8 }}>🏆</div>
+                          <div style={{ color:G, fontWeight:700, fontSize:18, marginBottom:6 }}>Högsta serien!</div>
+                          {lowerStege && <div style={{ color:"#5577aa", fontSize:13 }}>Du har {Math.round(curSnitt - lowerStege.snitt).toLocaleString("sv-SE")} kr/dag buffert kvar</div>}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+
+                    {/* Dagsmål */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>🔥 Ditt dagsmål i TB (kr)</div>
+                      <input type="number" value={dagsmål} step={1000} min={0}
+                        onChange={e => setDagsmål(parseFloat(e.target.value)||0)}
+                        style={{ width:"100%", background:ND, border:`1px solid #f5a62355`, color:"#f5a623", borderRadius:10, padding:"12px 16px", fontSize:20, fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}
+                      />
+                      <div style={{ color:"#5577aa", fontSize:12, marginTop:8 }}>Används för streak-räknaren</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── TEMPO ── */}
+                {sparkTab === "tempo" && (
+                  <div>
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:14 }}>📊 Tempo just nu</div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                        {[
+                          ["Säljdagar", curSäljDagar],
+                          ["Snitt TB/dag", Math.round(curSnitt).toLocaleString("sv-SE") + " kr"],
+                          ["Total TB", Math.round(curTotalTB).toLocaleString("sv-SE") + " kr"],
+                          ["Aktiv serie", (aktivStege_?.procent ?? 0) + "%"],
+                        ].map(([label, val]) => (
+                          <div key={label} style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>{label}</div>
+                            <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18, marginTop:4 }}>{val}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {nästaStege_ ? (<>
+                        <div style={{ color:"#5577aa", fontSize:12, marginBottom:6 }}>Behöver {Math.round(neededPerPassNästa).toLocaleString("sv-SE")} kr/pass i snitt ({passKvar} pass kvar) för {nästaStege_.procent}%</div>
+                        <div style={{ height:10, background:ND, borderRadius:5, overflow:"hidden", marginBottom:8 }}>
+                          <div style={{ height:"100%", borderRadius:5, background:`linear-gradient(90deg,${G},#f5a623)`, width:`${Math.min(100,(curSnitt/nästaStege_.snitt)*100)}%` }} />
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between" }}>
+                          <span style={{ color:"#5577aa", fontSize:11 }}>{Math.round(curSnitt).toLocaleString("sv-SE")}</span>
+                          <span style={{ color:G, fontSize:11, fontWeight:700 }}>{Math.round((curSnitt/nästaStege_.snitt)*100)}%</span>
+                          <span style={{ color:"#5577aa", fontSize:11 }}>{nästaStege_.snitt.toLocaleString("sv-SE")}</span>
+                        </div>
+                      </>) : (
+                        <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:10, padding:"14px", textAlign:"center" }}>
+                          <div style={{ color:G, fontWeight:700, fontSize:16 }}>🏆 Du är på toppnivå!</div>
+                          {lowerStege && <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>Buffert: {Math.round(curSnitt - lowerStege.snitt).toLocaleString("sv-SE")} kr/dag ner till {lowerStege.procent}%-serien</div>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── VAD OM ── */}
+                {sparkTab === "vadom" && (
+                  <div>
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>💰 Simulera ett pass</div>
+                      <div style={{ color:"#5577aa", fontSize:12, marginBottom:12 }}>Vad händer med din provision om du gör X kr i TB?</div>
+                      <input type="number" value={vadomTB} step={1000} min={0} placeholder="Ange TB för passet..."
+                        onChange={e => setVadomTB(e.target.value)}
+                        style={{ width:"100%", background:ND, border:`1px solid ${N}`, color:G, borderRadius:10, padding:"12px 16px", fontSize:20, fontFamily:"Rajdhani, sans-serif", fontWeight:700, marginBottom: vadomVal > 0 ? 14 : 0 }}
+                      />
+                      {vadomVal > 0 && (<>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+                          <div style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>Nytt snitt</div>
+                            <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{Math.round(vadomSnitt).toLocaleString("sv-SE")} kr</div>
+                          </div>
+                          <div style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>Serie</div>
+                            <div style={{ color: tierChanged ? "#f5a623" : G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{vadomTier.procent}% {tierChanged ? "🆙" : ""}</div>
+                          </div>
+                        </div>
+                        <div style={{ background: vadomDelta > 0 ? `${G}15` : "#2a0808", border:`1px solid ${vadomDelta > 0 ? GD : "#aa2222"}`, borderRadius:12, padding:"14px 16px", textAlign:"center" }}>
+                          <div style={{ color:"#5577aa", fontSize:11, marginBottom:4 }}>Provisionspåverkan</div>
+                          <div style={{ color: vadomDelta >= 0 ? G : "#ff6666", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:30 }}>
+                            {vadomDelta >= 0 ? "+" : ""}{fmt(vadomDelta)}
+                          </div>
+                          {tierChanged && <div style={{ color:"#f5a623", fontSize:12, marginTop:4 }}>🆙 Du byter till {vadomTier.procent}%-serien!</div>}
+                        </div>
+                      </>)}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── STATS ── */}
+                {sparkTab === "stats" && (
+                  <div>
+                    {/* Bästa pass */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🏆 Bästa passet denna månad</div>
+                      {bestPass ? (<>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                          <div>
+                            <div style={{ color:"#fff", fontWeight:600, fontSize:15 }}>{DAG_META[bestPass.dagTyp]?.emoji} {DAG_META[bestPass.dagTyp]?.label}</div>
+                            <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bestPass.startMin)} – {minToHHMM(bestPass.endMin)}</div>
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:24 }}>{Math.round(bestPass.tb ?? 0).toLocaleString("sv-SE")} kr</div>
+                            <div style={{ color:"#5577aa", fontSize:11 }}>TB</div>
+                          </div>
+                        </div>
+                        <div style={{ background:ND, borderRadius:8, padding:"8px 12px", display:"flex", justifyContent:"space-between" }}>
+                          <span style={{ color:"#5577aa", fontSize:12 }}>Lönebidrag</span>
+                          <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}>{fmt(calcDayPay(bestPass.dagTyp, bestPass.startMin, bestPass.endMin, settings.timlön))}</span>
+                        </div>
+                      </>) : (
+                        <div style={{ color:"#4466aa", textAlign:"center", padding:"20px 0" }}>Inga säljpass registrerade ännu</div>
+                      )}
+                    </div>
+
+                    {/* Streak */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🔥 Streak — dagsmål {dagsmål.toLocaleString("sv-SE")} kr TB</div>
+                      <div style={{ textAlign:"center", marginBottom:14 }}>
+                        <div style={{ color: streak > 0 ? "#f5a623" : "#334", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:64, lineHeight:1 }}>{streak}</div>
+                        <div style={{ color:"#5577aa", fontSize:13, marginTop:4 }}>pass i rad över målet</div>
+                      </div>
+                      <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                        {säljDays.map((d, i) => {
+                          const hit = (d.tb ?? 0) >= dagsmål;
+                          return (
+                            <div key={i} style={{ width:28, height:28, borderRadius:6, background: hit ? "#f5a623" : ND, border:`1px solid ${hit ? "#f5a623" : "#334"}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>
+                              {hit ? "✓" : "·"}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {säljDays.length > 0 && (
+                        <div style={{ color:"#5577aa", fontSize:12, marginTop:10 }}>{passedGoal} av {säljDays.length} pass har nått målet denna månad</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── FAKTA ── */}
+                {sparkTab === "fakta" && (
+                  <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
+                    <div style={{ color:G, fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🧠 Snabbfakta</div>
+                    {[
+                      ["Per minut (netto)", `${krPerMinNetto.toFixed(2)} kr`],
+                      ["Per timme (netto)", fmt(krPerMinNetto*60)],
+                      ["Per timme (brutto)", fmt(krPerMin*60)],
+                      ["En kaffe (32 kr)", `${Math.ceil(32/krPerMinNetto)} min jobb`],
+                      ["En lunch (120 kr)", `${Math.ceil(120/krPerMinNetto)} min jobb`],
+                      ["Hela passet netto", fmt(fullNetto)],
+                      ["Hela passet brutto", fmt(fullPay)],
+                    ].map(([label, val]) => (
+                      <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${N}` }}>
+                        <span style={{ color:"#5577aa", fontSize:13 }}>{label}</span>
+                        <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:14 }}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })()}
 
-          {/* ════════════════ HISTORIK ════════════════ */}
+                    {/* ════════════════ HISTORIK ════════════════ */}
           {tab === "historik" && (<>
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
               Senaste 6 månader
