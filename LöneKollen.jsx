@@ -116,8 +116,11 @@ export default function LöneKollen() {
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
   const [jobbläge, setJobbläge]       = useState("ledig");
-  const [dagsmål, setDagsmål]         = useState(10000);
-  const [passKvar, setPassKvar]       = useState(5);
+  const [dagsmål, setDagsmål]         = useState(() => { try { return parseFloat(localStorage.getItem("lk-dagsmål")) || 10000; } catch { return 10000; } });
+  const [passKvar, setPassKvar]       = useState(() => { try { return parseInt(localStorage.getItem("lk-passkvar")) || 5; } catch { return 5; } });
+
+  useEffect(() => { try { localStorage.setItem("lk-dagsmål", dagsmål); } catch {} }, [dagsmål]);
+  useEffect(() => { try { localStorage.setItem("lk-passkvar", passKvar); } catch {} }, [passKvar]);
   const [vadomTB, setVadomTB]         = useState("");
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
   const [sparkDagTyp, setSparkDagTyp] = useState("vardag");
@@ -157,6 +160,10 @@ export default function LöneKollen() {
     mutateMonth(cur => ({ ...cur, tbStege: stege }));
   }
 
+  function saveMonthKPI(kpiMål) {
+    mutateMonth(cur => ({ ...cur, kpiMål }));
+  }
+
   function saveDay(day) {
     mutateDays(ds => {
       const idx = ds.findIndex(d => d.id === day.id);
@@ -168,14 +175,15 @@ export default function LöneKollen() {
 
   // ── Summering ────────────────────────────────────────────────────────────
   const summary = useMemo(() => {
-    const manual = mData.manualTB;
+    const manual   = mData.manualTB;
+    const kpiMål   = mData.kpiMål ?? [];
     let baseLön = 0, obLön = 0, skottTotal = 0;
     let totalTB = 0, säljDagar = 0;
 
     if (manual) {
-      totalTB   = manual.totalTB   ?? 0;
-      säljDagar = manual.säljDagar ?? 0;
-      skottTotal = manual.skott    ?? 0;
+      totalTB    = manual.totalTB   ?? 0;
+      säljDagar  = manual.säljDagar ?? 0;
+      skottTotal = manual.skott     ?? 0;
     } else {
       days.forEach(d => {
         const breakMin = getBreakMin(d.dagTyp);
@@ -196,15 +204,27 @@ export default function LöneKollen() {
     const stege      = monthStege;
     const aktivStege = [...stege].reverse().find(s => snittTB >= s.snitt) ?? stege[0] ?? { procent: 0 };
     const nästaStege = stege.find(s => s.snitt > snittTB);
-    const tbProv     = totalTB * (aktivStege.procent / 100);
+
+    // KPI-beräkning
+    const säljPass = days.filter(d => d.passTyp !== "annan");
+    const kpiResults = kpiMål.filter(k => k.aktiv !== false).map(kpi => {
+      const vals  = säljPass.map(d => d.tjänster?.[kpi.id] ?? 0);
+      const snitt = vals.length > 0 ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
+      const nådd  = snitt >= kpi.mål;
+      return { ...kpi, snitt, nådd };
+    });
+    const kpiProcent = kpiResults.filter(k => k.nådd).reduce((s,k) => s + k.procent, 0);
+    const totalProcent = (aktivStege.procent + kpiProcent) / 100;
+    const tbProv     = totalTB * totalProcent;
     const provTotal  = tbProv + skottTotal;
 
     const brutto   = baseLön + obLön + provTotal;
     const netto    = brutto * (1 - settings.skatt / 100);
     const nettoSem = netto * 1.12;
     return { baseLön, obLön, tbProv, skottTotal, provTotal, brutto, netto, nettoSem,
-             totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual };
-  }, [days, settings, monthStege, mData.manualTB]);
+             totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual,
+             kpiResults, kpiProcent };
+  }, [days, settings, monthStege, mData.manualTB, mData.kpiMål]);
 
   // ── Historik ─────────────────────────────────────────────────────────────
   const historyMonths = useMemo(() => {
@@ -445,6 +465,32 @@ export default function LöneKollen() {
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${N}` }}>
                     <span style={{ color: "#5577aa", fontSize: 13 }}>Skottpengar</span>
                     <span style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{fmt(summary.skottTotal)}</span>
+                  </div>
+                )}
+                {/* KPI-status */}
+                {summary.kpiResults?.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${N}` }}>
+                    <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>KPI</div>
+                    {summary.kpiResults.map(kpi => (
+                      <div key={kpi.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div>
+                          <span style={{ fontSize: 12 }}>{kpi.nådd ? "✅" : "⬜"}</span>
+                          <span style={{ color: kpi.nådd ? "#fff" : "#5577aa", fontSize: 13, marginLeft: 6 }}>{kpi.namn}</span>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ color: kpi.nådd ? G : "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 13 }}>
+                            {kpi.snitt.toFixed(1)}/{kpi.mål} st
+                          </span>
+                          <span style={{ color: kpi.nådd ? G : "#334", fontSize: 11, marginLeft: 6 }}>+{kpi.procent}%</span>
+                        </div>
+                      </div>
+                    ))}
+                    {summary.kpiProcent > 0 && (
+                      <div style={{ background: `${G}15`, borderRadius: 8, padding: "6px 10px", marginTop: 6, display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "#5577aa", fontSize: 12 }}>Total provision inkl KPI</span>
+                        <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}>{summary.aktivStege?.procent + summary.kpiProcent}%</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1092,8 +1138,9 @@ export default function LöneKollen() {
       {stegeOpen && (
         <StegeModal
           initialStege={mData.tbStege ?? settings.tbStege ?? []}
+          initialKPI={mData.kpiMål ?? []}
           month={month}
-          onSave={stege => { saveMonthStege(stege); setStegeOpen(false); }}
+          onSave={(stege, kpiMål) => { saveMonthStege(stege); saveMonthKPI(kpiMål); setStegeOpen(false); }}
           onCancel={() => setStegeOpen(false)}
         />
       )}
@@ -1101,6 +1148,7 @@ export default function LöneKollen() {
       {addOpen && (
         <DayForm
           settings={settings}
+          kpiMål={mData.kpiMål ?? []}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => { saveDay(day); setAddOpen(false); setEditId(null); }}
           onSaveMonth={data => {
@@ -1133,11 +1181,15 @@ export default function LöneKollen() {
 }
 
 // ─── Stege-modal ──────────────────────────────────────────────────────────
-function StegeModal({ initialStege, month, onSave, onCancel }) {
+function StegeModal({ initialStege, initialKPI, month, onSave, onCancel }) {
   const [stege, setStege] = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
+  const [kpiMål, setKpiMål] = useState(initialKPI ?? []);
 
   function updateSteg(i, field, val) {
     setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
+  }
+  function updateKPI(id, field, val) {
+    setKpiMål(prev => prev.map(k => k.id === id ? { ...k, [field]: field === "procent" || field === "mål" ? parseFloat(val) || 0 : val } : k));
   }
 
   return (
@@ -1145,18 +1197,20 @@ function StegeModal({ initialStege, month, onSave, onCancel }) {
       <div style={{
         width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0",
         padding: "20px 18px 40px", animation: "slideUp .25s ease",
-        maxHeight: "85vh", overflowY: "auto",
+        maxHeight: "90vh", overflowY: "auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provisionsstege</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provisionsstege & KPI</div>
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
         <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 20, textTransform: "capitalize" }}>
           {new Date(month + "-01").toLocaleString("sv-SE", { month: "long", year: "numeric" })}
         </div>
 
+        {/* TB-stege */}
+        <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>TB-stege</div>
         {stege.map((s, i) => (
-          <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 8, alignItems: "center" }}>
+          <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ flex: 1 }}>
               <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
               <input type="number" value={s.snitt} min={0} step={500}
@@ -1166,7 +1220,7 @@ function StegeModal({ initialStege, month, onSave, onCancel }) {
               />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Procent (%)</div>
+              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>TB-procent (%)</div>
               <input type="number" value={s.procent} min={0} step={0.5}
                 onChange={e => updateSteg(i, "procent", e.target.value)}
                 style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
@@ -1178,25 +1232,68 @@ function StegeModal({ initialStege, month, onSave, onCancel }) {
             )}
           </div>
         ))}
-
         <button onClick={() => setStege(prev => [...prev, { snitt: 0, procent: 0 }])}
-          style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
+          style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 24 }}>
           + Lägg till steg
         </button>
 
-        <button onClick={() => onSave(stege)} style={{
+        {/* KPI */}
+        <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>KPI-provision</div>
+        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 12 }}>Varje uppnådd KPI adderar sin procent till TB-provisionen.</div>
+        {kpiMål.map(kpi => (
+          <div key={kpi.id} style={{ background: NC, border: `1px solid ${kpi.aktiv !== false ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+              <input value={kpi.namn} placeholder="Namn (t.ex. Kalibrering)"
+                onChange={e => updateKPI(kpi.id, "namn", e.target.value)}
+                style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 14, fontFamily: "Outfit, sans-serif" }}
+              />
+              <div onClick={() => updateKPI(kpi.id, "aktiv", !(kpi.aktiv !== false))} style={{
+                width: 42, height: 24, borderRadius: 12, flexShrink: 0,
+                background: kpi.aktiv !== false ? "#f5a623" : "#334",
+                position: "relative", cursor: "pointer", transition: "background .2s",
+              }}>
+                <div style={{ position: "absolute", top: 3, left: kpi.aktiv !== false ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+              </div>
+              <button onClick={() => setKpiMål(prev => prev.filter(k => k.id !== kpi.id))}
+                style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Mål (st/dag snitt)</div>
+                <input type="number" value={kpi.mål} min={0} step={0.5}
+                  onChange={e => updateKPI(kpi.id, "mål", e.target.value)}
+                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                />
+              </div>
+              <div>
+                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Extra provision (%)</div>
+                <input type="number" value={kpi.procent} min={0} step={0.5}
+                  onChange={e => updateKPI(kpi.id, "procent", e.target.value)}
+                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        <button onClick={() => setKpiMål(prev => [...prev, { id: `kpi-${Date.now()}`, namn: "", mål: 3, procent: 1, aktiv: true }])}
+          style={{ width: "100%", padding: "10px 0", background: "transparent", border: "1px solid #f5a62344", color: "#f5a623", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
+          + Lägg till KPI
+        </button>
+
+        <button onClick={() => onSave(stege, kpiMål)} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
           cursor: "pointer", fontFamily: "Outfit, sans-serif",
-        }}>Spara stege</button>
+        }}>Spara</button>
       </div>
     </div>
   );
 }
 
 // ─── Dag-formulär ─────────────────────────────────────────────────────────
-function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
+  const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
 
   const [formTab, setFormTab]     = useState(initialDay ? "pass" : "pass");
   const [dagTyp, setDagTyp]       = useState(initialDay?.dagTyp  ?? "vardag");
@@ -1206,6 +1303,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [passTyp, setPassTyp]     = useState(initialDay?.passTyp ?? "sälj");
   const [tb, setTb]               = useState(initialDay?.tb ?? "");
   const [skott, setSkott]         = useState(initialDay?.skott ?? "");
+  const [tjänster, setTjänster]   = useState(initialDay?.tjänster ?? {});
   const [savedDefault, setSavedDefault] = useState(false);
 
   // ── Hel-månad state ──────────────────────────────────────────────────────
@@ -1426,8 +1524,28 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             type="number" value={tb} step={500} min={0}
             onChange={e => setTb(parseFloat(e.target.value) || "")}
             placeholder="0"
-            style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 20 }}
+            style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: activeKPIs.length > 0 ? 14 : 20 }}
           />
+
+          {/* KPI-fält per pass */}
+          {activeKPIs.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Tjänster</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {activeKPIs.map(kpi => (
+                  <div key={kpi.id}>
+                    <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 4 }}>{kpi.namn || "KPI"} (mål: {kpi.mål})</div>
+                    <input type="number" min={0} step={1}
+                      value={tjänster[kpi.id] ?? ""}
+                      placeholder="0"
+                      onChange={e => setTjänster(prev => ({ ...prev, [kpi.id]: parseFloat(e.target.value) || 0 }))}
+                      style={{ width: "100%", background: ND, border: `1px solid #f5a62344`, color: "#f5a623", borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>) : (<>
           {/* Skottpengar */}
           <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Skottpengar (kr)</div>
@@ -1494,6 +1612,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           passTyp,
           tb: passTyp === "sälj" ? (parseFloat(tb) || 0) : 0,
           skott: passTyp === "annan" ? (parseFloat(skott) || 0) : 0,
+          tjänster: passTyp === "sälj" ? tjänster : {},
         })} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
