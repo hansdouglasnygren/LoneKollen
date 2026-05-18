@@ -449,11 +449,30 @@ export default function LöneKollen() {
                     </div>
                   </div>
                 </div>
-                {summary.nästaStege ? (
-                  <div style={{ color: "#5577aa", fontSize: 12, textAlign: "center", marginTop: 6 }}>
-                    {(summary.nästaStege.snitt - summary.snittTB).toLocaleString("sv-SE")} kr/dag till {summary.nästaStege.procent}%-serien
-                  </div>
-                ) : summary.säljDagar > 0 && (
+                {summary.nästaStege ? (() => {
+                  const extraKr = summary.totalTB * (summary.nästaStege.procent - summary.aktivStege.procent) / 100;
+                  const extraNetto = extraKr * (1 - settings.skatt / 100);
+                  return (
+                    <div style={{ marginTop: 10, background: "#0d1f00", border: "2px solid #f5a62366", borderRadius: 14, padding: "14px 16px" }}>
+                      <div style={{ color: "#f5a62399", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                        💰 Om du når {summary.nästaStege.procent}%-serien
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <div style={{ background: "#0a0a00", borderRadius: 10, padding: "10px 12px" }}>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Brutto</div>
+                          <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>+{fmt(extraKr)}</div>
+                        </div>
+                        <div style={{ background: "#0a0a00", borderRadius: 10, padding: "10px 12px" }}>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
+                          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>+{fmt(extraNetto)}</div>
+                        </div>
+                      </div>
+                      <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center" }}>
+                        Baserat på {Math.round(summary.totalTB).toLocaleString("sv-SE")} kr TB · höj snittet med {Math.round(summary.nästaStege.snitt - summary.snittTB).toLocaleString("sv-SE")} kr/dag
+                      </div>
+                    </div>
+                  );
+                })() : summary.säljDagar > 0 && (
                   <div style={{ marginTop: 8, background: `${G}20`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
                     <div style={{ color: G, fontSize: 12, fontWeight: 700 }}>🏆 Högsta serien!</div>
                     <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>
@@ -844,8 +863,16 @@ export default function LöneKollen() {
                             <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>efter skatt · brutto {fmt(fullPay)}</div>
                           </>) : isWorking ? (<>
                             <div style={{ color:"#f5a62399", fontSize:11, fontWeight:600, textTransform:"uppercase", letterSpacing:2, marginBottom:8 }}>⚡ Tjänat hittills</div>
-                            <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:42, lineHeight:1 }}>{Math.round(earnedNetto).toLocaleString("sv-SE")} kr</div>
-                            <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>efter skatt · brutto {Math.round(earnedSoFar).toLocaleString("sv-SE")} kr</div>
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                              <div style={{ background:"#001435", borderRadius:12, padding:"12px" }}>
+                                <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Netto</div>
+                                <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:28, lineHeight:1 }}>{Math.round(earnedNetto).toLocaleString("sv-SE")} kr</div>
+                              </div>
+                              <div style={{ background:"#001435", borderRadius:12, padding:"12px" }}>
+                                <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Brutto</div>
+                                <div style={{ color:"#8899cc", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:28, lineHeight:1 }}>{Math.round(earnedSoFar).toLocaleString("sv-SE")} kr</div>
+                              </div>
+                            </div>
                             <div style={{ color:"#5577aa", fontSize:12, margin:"6px 0 12px" }}>{Math.floor(elapsed/60)}h {Math.round(elapsed%60)}min jobbat · {Math.floor(remaining/60)}h {Math.round(remaining%60)}min kvar</div>
                             <div style={{ height:8, background:"#001435", borderRadius:4, overflow:"hidden", marginBottom:10 }}>
                               <div style={{ height:"100%", borderRadius:4, background:"linear-gradient(90deg,#f5a623,#5bc500)", width:`${progress*100}%`, transition:"width 1s linear" }} />
@@ -906,6 +933,28 @@ export default function LöneKollen() {
                           <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:36 }}>{Math.ceil(neededPerPassNästa).toLocaleString("sv-SE")} kr</div>
                           <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>TB för att nå {nästaStege_.procent}%-serien</div>
                         </div>
+
+                        {/* Extra i fickan */}
+                        {curTotalTB > 0 && (() => {
+                          const extraKr    = curTotalTB * (nästaStege_.procent - aktivStege_.procent) / 100;
+                          const extraNetto = extraKr * (1 - settings.skatt / 100);
+                          return (
+                            <div style={{ background:"#0d1f00", border:"2px solid #f5a62366", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+                              <div style={{ color:"#f5a62399", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>💰 Värt att kämpa för</div>
+                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                                <div style={{ background:"#0a0a00", borderRadius:10, padding:"10px 12px" }}>
+                                  <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Brutto</div>
+                                  <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:22 }}>+{fmt(extraKr)}</div>
+                                </div>
+                                <div style={{ background:"#0a0a00", borderRadius:10, padding:"10px 12px" }}>
+                                  <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Netto ({settings.skatt}%)</div>
+                                  <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:22 }}>+{fmt(extraNetto)}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Progress bar mot nästa stege */}
                         <div style={{ marginBottom:8 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
