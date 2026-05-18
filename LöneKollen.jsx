@@ -163,24 +163,29 @@ export default function LöneKollen() {
 
   // ── Summering ────────────────────────────────────────────────────────────
   const summary = useMemo(() => {
+    const manual = mData.manualTB;
     let baseLön = 0, obLön = 0, skottTotal = 0;
     let totalTB = 0, säljDagar = 0;
 
-    days.forEach(d => {
-      const breakMin = getBreakMin(d.dagTyp);
-      const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
-      const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
-      baseLön += normal;
-      obLön   += (total - normal);
-
-      if (d.passTyp === "annan") {
-        skottTotal += (d.skott ?? 0);
-      } else {
-        // säljdag (default för gamla pass)
-        totalTB  += (d.tb ?? 0);
-        säljDagar++;
-      }
-    });
+    if (manual) {
+      totalTB   = manual.totalTB   ?? 0;
+      säljDagar = manual.säljDagar ?? 0;
+      skottTotal = manual.skott    ?? 0;
+    } else {
+      days.forEach(d => {
+        const breakMin = getBreakMin(d.dagTyp);
+        const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
+        const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+        baseLön += normal;
+        obLön   += (total - normal);
+        if (d.passTyp === "annan") {
+          skottTotal += (d.skott ?? 0);
+        } else {
+          totalTB  += (d.tb ?? 0);
+          säljDagar++;
+        }
+      });
+    }
 
     const snittTB    = säljDagar > 0 ? totalTB / säljDagar : 0;
     const stege      = monthStege;
@@ -193,8 +198,8 @@ export default function LöneKollen() {
     const netto    = brutto * (1 - settings.skatt / 100);
     const nettoSem = netto * 1.12;
     return { baseLön, obLön, tbProv, skottTotal, provTotal, brutto, netto, nettoSem,
-             totalTB, snittTB, säljDagar, aktivStege, nästaStege };
-  }, [days, settings]);
+             totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual };
+  }, [days, settings, monthStege, mData.manualTB]);
 
   // ── Historik ─────────────────────────────────────────────────────────────
   const historyMonths = useMemo(() => {
@@ -337,13 +342,19 @@ export default function LöneKollen() {
             <div style={{ ...cardStyle, marginBottom: 14 }}>
               {/* Pass-räknare */}
               <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                {[
-                  ["📋 Pass", days.length],
-                  ["💼 Vardagar", days.filter(d => d.dagTyp === "vardag").length],
-                  ["🛒 Lördagar", days.filter(d => d.dagTyp === "lördag").length],
-                  ["☀️ Söndagar", days.filter(d => d.dagTyp === "söndag").length],
+                {(summary.isManual ? [
+                  ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0],
+                  ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0],
+                  ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0],
+                  ["🔴 Röda",      mData.manualDagar?.röda       ?? 0],
+                  ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0],
+                ].filter(([,v]) => v > 0) : [
+                  ["📋 Pass",      days.length],
+                  ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length],
+                  ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length],
+                  ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length],
                   ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length]] : []),
-                ].map(([label, val]) => (
+                ]).map(([label, val]) => (
                   <div key={label} style={{
                     background: ND, border: `1px solid ${N}`, borderRadius: 8,
                     padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
@@ -842,6 +853,22 @@ export default function LöneKollen() {
           settings={settings}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => { saveDay(day); setAddOpen(false); setEditId(null); }}
+          onSaveMonth={data => {
+            mutateMonth(cur => ({
+              ...cur,
+              manualTB: {
+                totalTB:   data.totalTB,
+                säljDagar: data.säljDagar,
+                skott:     data.skott,
+              },
+              manualDagar: {
+                vardagar: data.vardagar, lördagar: data.lördagar,
+                söndagar: data.söndagar, röda: data.röda,
+                kassaDagar: data.kassaDagar,
+              },
+            }));
+            setAddOpen(false);
+          }}
           onSaveDefault={(typ, start, end, prov) => {
             setSettings(p => ({
               ...p,
@@ -918,9 +945,10 @@ function StegeModal({ initialStege, month, onSave, onCancel }) {
 }
 
 // ─── Dag-formulär ─────────────────────────────────────────────────────────
-function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
 
+  const [formTab, setFormTab]     = useState(initialDay ? "pass" : "pass");
   const [dagTyp, setDagTyp]       = useState(initialDay?.dagTyp  ?? "vardag");
   const [startMin, setStartMin]   = useState(initialDay?.startMin ?? getDefaults("vardag").start ?? 9*60+45);
   const [endMin, setEndMin]       = useState(initialDay?.endMin   ?? getDefaults("vardag").end   ?? 19*60);
@@ -929,6 +957,15 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
   const [tb, setTb]               = useState(initialDay?.tb ?? "");
   const [skott, setSkott]         = useState(initialDay?.skott ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
+
+  // ── Hel-månad state ──────────────────────────────────────────────────────
+  const [mVardagar, setMVardagar]   = useState(0);
+  const [mLördagar, setMLördagar]   = useState(0);
+  const [mSöndagar, setMSöndagar]   = useState(0);
+  const [mRöda, setMRöda]           = useState(0);
+  const [mKassa, setMKassa]         = useState(0);
+  const [mTotalTB, setMTotalTB]     = useState("");
+  const [mSnittSkott, setMSnittSkott] = useState("");
 
   // Uppdatera default tider vid byte av dagtyp
   function changeDagTyp(typ) {
@@ -994,16 +1031,112 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
         animation: "slideUp .25s ease",
         maxHeight: "92vh", overflowY: "auto",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>
-            {initialDay ? "Redigera pass" : "Lägg till pass"}
+            {initialDay ? "Redigera pass" : "Lägg till"}
           </div>
           <button onClick={onCancel} style={{
             background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer",
           }}>✕</button>
         </div>
 
-        {/* Dagtyp */}
+        {/* Flikar — dölj vid redigering */}
+        {!initialDay && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {[["pass", "📅 Enskilt pass"], ["månad", "📆 Hel månad"]].map(([key, label]) => (
+              <button key={key} onClick={() => setFormTab(key)} style={{
+                flex: 1, padding: "11px 0", border: "none", borderRadius: 12,
+                background: formTab === key ? G : NC,
+                color: formTab === key ? "#001435" : "#5577aa",
+                fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>{label}</button>
+            ))}
+          </div>
+        )}
+
+        {/* ── HEL MÅNAD ── */}
+        {formTab === "månad" && (() => {
+          function MStep({ label, sublabel, value, onChange }) {
+            return (
+              <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{label}</div>
+                  {sublabel && <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>{sublabel}</div>}
+                </div>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <button onClick={() => onChange(Math.max(0, value - 1))} style={{ width: 38, height: 38, borderRadius: "10px 0 0 10px", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>−</button>
+                  <div style={{ width: 44, height: 38, background: ND, display: "flex", alignItems: "center", justifyContent: "center", color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, borderTop: `1px solid ${N}`, borderBottom: `1px solid ${N}` }}>{value}</div>
+                  <button onClick={() => onChange(value + 1)} style={{ width: 38, height: 38, borderRadius: "0 10px 10px 0", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>+</button>
+                </div>
+              </div>
+            );
+          }
+
+          // Beräkna timlön för månaden
+          const lön = (typ, antal) => antal * calcDayPay(typ, getDefaults(typ).start ?? 9*60, getDefaults(typ).end ?? 17*60, settings.timlön);
+          const totalLön = lön("vardag", mVardagar) + lön("lördag", mLördagar) + lön("söndag", mSöndagar) + lön("röd", mRöda);
+          const totalSkott = mKassa * (parseFloat(mSnittSkott) || 0);
+          const totalDagar = mVardagar + mLördagar + mSöndagar + mRöda + mKassa;
+
+          return (
+            <div>
+              <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Antal dagar</div>
+              <MStep label="💼 Vardagar" value={mVardagar} onChange={setMVardagar} />
+              <MStep label="🛒 Lördagar" value={mLördagar} onChange={setMLördagar} />
+              <MStep label="☀️ Söndagar" value={mSöndagar} onChange={setMSöndagar} />
+              <MStep label="🔴 Röda dagar" value={mRöda} onChange={setMRöda} />
+              <MStep label="🔧 Kassa / Lagerdagar" sublabel="Ange snitt skottpengar nedan" value={mKassa} onChange={setMKassa} />
+
+              {mKassa > 0 && (<>
+                <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Snitt skottpengar per kassadag (kr)</div>
+                <input type="number" value={mSnittSkott} step={100} min={0} placeholder="0"
+                  onChange={e => setMSnittSkott(e.target.value)}
+                  style={{ width: "100%", background: ND, border: `1px solid #f5a62355`, color: "#f5a623", borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 16 }}
+                />
+              </>)}
+
+              <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6, marginTop: 4 }}>Total TB för månaden (kr)</div>
+              <input type="number" value={mTotalTB} step={1000} min={0} placeholder="0"
+                onChange={e => setMTotalTB(e.target.value)}
+                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 16 }}
+              />
+
+              {/* Förhandsvisning */}
+              {totalDagar > 0 && (
+                <div style={{ background: `${G}12`, border: `1px solid ${GD}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 8 }}>{totalDagar} dagar · {mVardagar}V {mLördagar}L {mSöndagar}S {mRöda}R {mKassa}K</div>
+                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ color: "#8899cc", fontSize: 11 }}>Timlön</div>
+                      <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Math.round(totalLön).toLocaleString("sv-SE")} kr</div>
+                    </div>
+                    {parseFloat(mTotalTB) > 0 && <div>
+                      <div style={{ color: "#8899cc", fontSize: 11 }}>TB</div>
+                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Number(mTotalTB).toLocaleString("sv-SE")} kr</div>
+                    </div>}
+                    {totalSkott > 0 && <div>
+                      <div style={{ color: "#8899cc", fontSize: 11 }}>Skottpengar</div>
+                      <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Math.round(totalSkott).toLocaleString("sv-SE")} kr</div>
+                    </div>}
+                  </div>
+                </div>
+              )}
+
+              <button onClick={() => onSaveMonth({
+                vardagar: mVardagar, lördagar: mLördagar, söndagar: mSöndagar, röda: mRöda,
+                kassaDagar: mKassa, totalTB: parseFloat(mTotalTB) || 0,
+                skott: totalSkott, säljDagar: mVardagar + mLördagar + mSöndagar + mRöda,
+              })} style={{
+                width: "100%", padding: 16, background: G, border: "none",
+                borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+                cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>Spara hel månad</button>
+            </div>
+          );
+        })()}
+
+        {/* ── ENSKILT PASS ── */}
+        {(formTab === "pass" || initialDay) && (<>
         <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Dagtyp</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
           {Object.entries(DAG_META).map(([typ, meta]) => (
@@ -1118,6 +1251,7 @@ function DayForm({ settings, initialDay, onSave, onSaveDefault, onCancel }) {
         }}>
           {initialDay ? "Spara ändringar" : "Lägg till pass"}
         </button>
+        </>)}
       </div>
     </div>
   );
