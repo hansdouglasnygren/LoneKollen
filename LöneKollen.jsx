@@ -453,7 +453,37 @@ export default function LöneKollen() {
               ))}
             </div>
 
-            {/* Daglista */}
+          {/* Flytta pass-knapp */}
+            {days.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <button onClick={() => {
+                  const target = addMonths(month, -1);
+                  if (!window.confirm(`Flytta alla ${days.length} pass från ${fmtMonth(month)} till ${fmtMonth(target)}?`)) return;
+                  setMonths(prev => {
+                    const curDays = prev[month]?.days ?? [];
+                    const curStege = prev[month]?.tbStege;
+                    const targetExisting = prev[target] ?? { days: [] };
+                    return {
+                      ...prev,
+                      [target]: {
+                        ...targetExisting,
+                        days: [...(targetExisting.days ?? []), ...curDays],
+                        ...(curStege && !targetExisting.tbStege ? { tbStege: curStege } : {}),
+                      },
+                      [month]: { days: [] },
+                    };
+                  });
+                  setMonth(target);
+                }} style={{
+                  width: "100%", padding: "11px 0",
+                  background: "transparent", border: "1px solid #334",
+                  borderRadius: 12, color: "#5577aa", cursor: "pointer",
+                  fontSize: 13, fontFamily: "Outfit, sans-serif",
+                }}>
+                  ↩ Flytta alla pass till {fmtMonth(addMonths(month, -1))}
+                </button>
+              </div>
+            )}
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
               {days.length} pass registrerade
             </div>
