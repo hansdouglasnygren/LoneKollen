@@ -177,7 +177,7 @@ export default function LöneKollen() {
   const summary = useMemo(() => {
     const manual   = mData.manualTB;
     const kpiMål   = mData.kpiMål ?? [];
-    let baseLön = 0, obLön = 0, skottTotal = 0;
+    let baseLön = 0, obLön = 0, skottTotal = 0, bonusTotal = 0;
     let totalTB = 0, säljDagar = 0;
 
     if (manual) {
@@ -197,6 +197,7 @@ export default function LöneKollen() {
           totalTB  += (d.tb ?? 0);
           säljDagar++;
         }
+        bonusTotal += (d.bonus ?? 0);
       });
     }
 
@@ -216,12 +217,12 @@ export default function LöneKollen() {
     const kpiProcent = kpiResults.filter(k => k.nådd).reduce((s,k) => s + k.procent, 0);
     const totalProcent = (aktivStege.procent + kpiProcent) / 100;
     const tbProv     = totalTB * totalProcent;
-    const provTotal  = tbProv + skottTotal;
+    const provTotal  = tbProv + skottTotal + bonusTotal;
 
     const brutto   = baseLön + obLön + provTotal;
     const netto    = brutto * (1 - settings.skatt / 100);
     const nettoSem = netto * 1.12;
-    return { baseLön, obLön, tbProv, skottTotal, provTotal, brutto, netto, nettoSem,
+    return { baseLön, obLön, tbProv, skottTotal, bonusTotal, provTotal, brutto, netto, nettoSem,
              totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual,
              kpiResults, kpiProcent };
   }, [days, settings, monthStege, mData.manualTB, mData.kpiMål]);
@@ -501,7 +502,7 @@ export default function LöneKollen() {
                   <div style={{ marginTop: 8, background: `${G}20`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
                     <div style={{ color: G, fontSize: 12, fontWeight: 700 }}>🏆 Högsta serien!</div>
                     <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>
-                      {(summary.snittTB - ((settings.tbStege ?? [])[( settings.tbStege ?? []).length - 2]?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
+                      {(summary.snittTB - (summary.aktivStege?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
                     </div>
                   </div>
                 )}
@@ -547,6 +548,7 @@ export default function LöneKollen() {
                 ["OB-tillägg", summary.obLön],
                 ["TB-provision", summary.tbProv],
                 ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal]] : []),
+                ...(summary.bonusTotal > 0 ? [["Tävlingsbonus 🏆", summary.bonusTotal]] : []),
               ].map(([label, val], i, arr) => (
                 <div key={label} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -601,7 +603,7 @@ export default function LöneKollen() {
                       {day.passTyp === "annan"
                         ? <div style={{ color: "#f5a623", fontSize: 11 }}>skott {fmt(day.skott ?? 0)}</div>
                         : day.tb > 0
-                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr</div>
+                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{day.bonus > 0 ? ` · 🏆 +${day.bonus}` : ""}</div>
                           : null
                       }
                     </div>
@@ -1234,8 +1236,14 @@ export default function LöneKollen() {
         <StegeModal
           initialStege={mData.tbStege ?? settings.tbStege ?? []}
           initialKPI={mData.kpiMål ?? []}
+          initialBonus={mData.bonusAktiv ?? false}
           month={month}
-          onSave={(stege, kpiMål) => { saveMonthStege(stege); saveMonthKPI(kpiMål); setStegeOpen(false); }}
+          onSave={(stege, kpiMål, bonusAktiv) => {
+            saveMonthStege(stege);
+            saveMonthKPI(kpiMål);
+            mutateMonth(cur => ({ ...cur, bonusAktiv }));
+            setStegeOpen(false);
+          }}
           onCancel={() => setStegeOpen(false)}
         />
       )}
@@ -1244,6 +1252,7 @@ export default function LöneKollen() {
         <DayForm
           settings={settings}
           kpiMål={mData.kpiMål ?? []}
+          bonusAktiv={mData.bonusAktiv ?? false}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => { saveDay(day); setAddOpen(false); setEditId(null); }}
           onSaveMonth={data => {
@@ -1276,9 +1285,10 @@ export default function LöneKollen() {
 }
 
 // ─── Stege-modal ──────────────────────────────────────────────────────────
-function StegeModal({ initialStege, initialKPI, month, onSave, onCancel }) {
-  const [stege, setStege] = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
-  const [kpiMål, setKpiMål] = useState(initialKPI ?? []);
+function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onCancel }) {
+  const [stege, setStege]       = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
+  const [kpiMål, setKpiMål]     = useState(initialKPI ?? []);
+  const [bonusAktiv, setBonusAktiv] = useState(initialBonus ?? false);
 
   function updateSteg(i, field, val) {
     setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
@@ -1310,8 +1320,7 @@ function StegeModal({ initialStege, initialKPI, month, onSave, onCancel }) {
               <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
               <input type="number" value={s.snitt} min={0} step={500}
                 onChange={e => updateSteg(i, "snitt", e.target.value)}
-                disabled={i === 0}
-                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: i === 0 ? "#445" : G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
               />
             </div>
             <div style={{ flex: 1 }}>
@@ -1375,7 +1384,25 @@ function StegeModal({ initialStege, initialKPI, month, onSave, onCancel }) {
           + Lägg till KPI
         </button>
 
-        <button onClick={() => onSave(stege, kpiMål)} style={{
+        {/* Tävlingsbonus */}
+        <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>Tävlingsbonus</div>
+        <div style={{ background: NC, border: `1px solid ${bonusAktiv ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Aktiv denna månad</div>
+              <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>Lägger till bonus-fält per pass (0 / 500 / 1 000 kr)</div>
+            </div>
+            <div onClick={() => setBonusAktiv(b => !b)} style={{
+              width: 46, height: 26, borderRadius: 13, flexShrink: 0,
+              background: bonusAktiv ? "#f5a623" : "#334",
+              position: "relative", cursor: "pointer", transition: "background .2s",
+            }}>
+              <div style={{ position: "absolute", top: 3, left: bonusAktiv ? 22 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+            </div>
+          </div>
+        </div>
+
+        <button onClick={() => onSave(stege, kpiMål, bonusAktiv)} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
           cursor: "pointer", fontFamily: "Outfit, sans-serif",
@@ -1386,7 +1413,7 @@ function StegeModal({ initialStege, initialKPI, month, onSave, onCancel }) {
 }
 
 // ─── Dag-formulär ─────────────────────────────────────────────────────────
-function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
   const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
 
@@ -1399,6 +1426,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [tb, setTb]               = useState(initialDay?.tb ?? "");
   const [skott, setSkott]         = useState(initialDay?.skott ?? "");
   const [tjänster, setTjänster]   = useState(initialDay?.tjänster ?? {});
+  const [bonus, setBonus]         = useState(initialDay?.bonus ?? 0);
   const [savedDefault, setSavedDefault] = useState(false);
 
   // ── Hel-månad state ──────────────────────────────────────────────────────
@@ -1682,7 +1710,26 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           </div>
         </div>
 
-        {/* Spara som standard-knapp */}
+          {/* Tävlingsbonus — visas bara om aktiv denna månad */}
+          {bonusAktiv && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏆 Tävlingsbonus</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[0, 500, 1000].map(val => (
+                  <button key={val} onClick={() => setBonus(val)} style={{
+                    flex: 1, padding: "12px 0", border: "none", borderRadius: 12,
+                    background: bonus === val ? (val === 0 ? NC : "#f5a623") : NC,
+                    color: bonus === val ? (val === 0 ? "#5577aa" : "#001435") : "#5577aa",
+                    fontWeight: 700, fontSize: 15, cursor: "pointer",
+                    fontFamily: "Rajdhani, sans-serif",
+                    border: bonus === val && val === 0 ? `1px solid #334` : bonus === val ? "none" : `1px solid ${N}`,
+                  }}>
+                    {val === 0 ? "Ingen" : `+${val} kr`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         <button
           onClick={() => {
             onSaveDefault(dagTyp, startMin, endMin, prov);
@@ -1708,6 +1755,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           tb: passTyp === "sälj" ? (parseFloat(tb) || 0) : 0,
           skott: passTyp === "annan" ? (parseFloat(skott) || 0) : 0,
           tjänster: passTyp === "sälj" ? tjänster : {},
+          bonus: bonus || 0,
         })} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
