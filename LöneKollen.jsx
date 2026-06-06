@@ -937,7 +937,6 @@ export default function LöneKollen() {
                                     <span style={{ color:"#5577aa", fontSize:11 }}>Gräns: {(aktivTier?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span>
                                   </div>
                                 </div>
-                                </div>
                               )}
                             </div>
                           )}
