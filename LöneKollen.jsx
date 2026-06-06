@@ -364,64 +364,72 @@ export default function LöneKollen() {
               </div>
             )}
 
-            {/* Summering */}
-            <div style={{ ...cardStyle, marginBottom: 14 }}>
-              {/* Pass-räknare */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                {(summary.isManual ? [
-                  ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0],
-                  ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0],
-                  ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0],
-                  ["🔴 Röda",      mData.manualDagar?.röda       ?? 0],
-                  ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0],
-                ].filter(([,v]) => v > 0) : [
-                  ["📋 Pass",      days.length],
-                  ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length],
-                  ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length],
-                  ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length],
-                  ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length]] : []),
-                ]).map(([label, val]) => (
-                  <div key={label} style={{
-                    background: ND, border: `1px solid ${N}`, borderRadius: 8,
-                    padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
+            {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
+            <div style={{ marginBottom: 14 }}>
+              {/* Brutto — stor och tydlig */}
+              <div style={{
+                background: N, borderRadius: "16px 16px 0 0",
+                padding: "18px 18px 14px",
+                borderBottom: `1px solid ${ND}`,
+              }}>
+                <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
+                <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
+                <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
+                  <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
+                  {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
+                  {summary.bonusTotal > 0 && <span>🏆 Bonus {fmt(summary.bonusTotal)}</span>}
+                </div>
+              </div>
+
+              {/* Netto + Semesterlön sida vid sida */}
+              <div style={{ display: "flex" }}>
+                <div style={{
+                  flex: 1, background: NC, padding: "14px 18px",
+                  borderRadius: "0 0 0 16px", borderRight: `1px solid ${ND}`,
+                }}>
+                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
+                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
+                </div>
+                {settings.semesterLön && (
+                  <div style={{
+                    flex: 1, background: `${G}18`, padding: "14px 18px",
+                    borderRadius: "0 0 16px 0",
                   }}>
-                    <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
-                    <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
-                    <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{val}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ borderTop: `1px solid ${N}`, paddingTop: 12, display: "flex", gap: 8, marginBottom: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Brutto</div>
-                  <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, fontFamily: "Rajdhani, sans-serif" }}>{fmt(summary.brutto)}</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
-                  <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, fontFamily: "Rajdhani, sans-serif" }}>{fmt(summary.netto)}</div>
-                </div>
-              </div>
-              {settings.semesterLön && settings.semesterTyp === "månadsvis" && (
-                <div style={{ background: `${G}18`, border: `1px solid ${GD}`, borderRadius: 10, padding: "10px 14px" }}>
-                  <div style={{ color: "#5bc58855", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Ink. semesterlön +12% (månadsvis)</div>
-                  <div style={{ color: G, fontSize: 24, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", marginTop: 2 }}>{fmt(summary.nettoSem)}</div>
-                </div>
-              )}
-              {settings.semesterLön && settings.semesterTyp === "dagar" && (
-                <div style={{ background: "#f5a62318", border: "1px solid #f5a62355", borderRadius: 10, padding: "10px 14px" }}>
-                  <div style={{ color: "#f5a62399", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Semesterlön intjänad (+12%)</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ color: "#f5a623", fontSize: 20, fontWeight: 700, fontFamily: "Rajdhani, sans-serif" }}>{fmt(summary.nettoSem - summary.netto)}</div>
-                      <div style={{ color: "#f5a62399", fontSize: 11, marginTop: 2 }}>betalas ut vid semesteruttag</div>
+                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ color: "#5577aa", fontSize: 11 }}>Utbetalt nu</div>
-                      <div style={{ color: "#fff", fontSize: 18, fontWeight: 700, fontFamily: "Rajdhani, sans-serif" }}>{fmt(summary.netto)}</div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
+                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
                     </div>
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* Pass-räknare */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {(summary.isManual ? [
+                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0],
+                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0],
+                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0],
+                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0],
+                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0],
+              ].filter(([,v]) => v > 0) : [
+                ["📋 Pass",      days.length],
+                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length],
+                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length],
+                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length],
+                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length]] : []),
+              ]).map(([label, val]) => (
+                <div key={label} style={{
+                  background: ND, border: `1px solid ${N}`, borderRadius: 8,
+                  padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
+                }}>
+                  <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
+                  <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
+                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{val}</span>
                 </div>
-              )}
+              ))}
             </div>
 
             {/* TB-sektion */}
