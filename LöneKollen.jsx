@@ -499,14 +499,70 @@ export default function LöneKollen() {
                     </div>
                   );
                 })() : summary.säljDagar > 0 && (
-                  <div style={{ marginTop: 8, background: `${G}20`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-                    <div style={{ color: G, fontSize: 12, fontWeight: 700 }}>🏆 Högsta serien!</div>
-                    <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>
-                      {(summary.snittTB - (summary.aktivStege?.snitt ?? 0)).toLocaleString("sv-SE")} kr/dag buffert kvar
+                  <div style={{ marginTop: 8, background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ color: G, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>🏆 Högsta serien!</div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Ditt snitt</div>
+                        <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.snittTB).toLocaleString("sv-SE")} kr/dag</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Guldgräns</div>
+                        <div style={{ color: "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{(summary.aktivStege?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</div>
+                      </div>
                     </div>
                   </div>
                 )}
-                {summary.skottTotal > 0 && (
+                {/* Tillgodo / underskott */}
+                {summary.säljDagar > 0 && (() => {
+                  const goldSnitt   = summary.aktivStege?.snitt ?? 0;
+                  const krävdTB     = goldSnitt * summary.säljDagar;
+                  const tbTillgodo  = summary.totalTB - krävdTB;
+                  const överskott   = tbTillgodo >= 0;
+                  return (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {/* TB tillgodo */}
+                      <div style={{
+                        background: överskott ? `${G}15` : "#1a0000",
+                        border: `1px solid ${överskott ? GD : "#aa2222"}`,
+                        borderRadius: 10, padding: "10px 14px",
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                      }}>
+                        <div>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>TB tillgodo på guldnivån</div>
+                          <div style={{ color: "#5577aa", fontSize: 11 }}>{Math.round(summary.totalTB).toLocaleString("sv-SE")} − {Math.round(krävdTB).toLocaleString("sv-SE")} kr</div>
+                        </div>
+                        <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                          {överskott ? "+" : ""}{Math.round(tbTillgodo).toLocaleString("sv-SE")} kr
+                        </div>
+                      </div>
+
+                      {/* KPI tillgodo */}
+                      {summary.kpiResults?.filter(k => k.aktiv !== false).map(kpi => {
+                        const kpiKrävda  = kpi.mål * summary.säljDagar;
+                        const kpiTotalt  = kpi.snitt * summary.säljDagar;
+                        const kpiDiff    = Math.round(kpiTotalt - kpiKrävda);
+                        const kpiPlus    = kpiDiff >= 0;
+                        return (
+                          <div key={kpi.id} style={{
+                            background: kpiPlus ? `${G}15` : "#1a0000",
+                            border: `1px solid ${kpiPlus ? GD : "#aa2222"}`,
+                            borderRadius: 10, padding: "10px 14px",
+                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                          }}>
+                            <div>
+                              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{kpi.namn} tillgodo</div>
+                              <div style={{ color: "#5577aa", fontSize: 11 }}>{kpiTotalt.toFixed(1)} / {kpiKrävda} st krävs</div>
+                            </div>
+                            <div style={{ color: kpiPlus ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                              {kpiPlus ? "+" : ""}{kpiDiff} st
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${N}` }}>
                     <span style={{ color: "#5577aa", fontSize: 13 }}>Skottpengar</span>
                     <span style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{fmt(summary.skottTotal)}</span>
@@ -544,19 +600,20 @@ export default function LöneKollen() {
             {/* Uppdelning */}
             <div style={{ ...cardStyle, marginBottom: 18 }}>
               {[
-                ["Baslön", summary.baseLön],
-                ["OB-tillägg", summary.obLön],
-                ["TB-provision", summary.tbProv],
-                ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal]] : []),
-                ...(summary.bonusTotal > 0 ? [["Tävlingsbonus 🏆", summary.bonusTotal]] : []),
-              ].map(([label, val], i, arr) => (
+                ["Baslön", summary.baseLön, null],
+                ["OB-tillägg", summary.obLön, null],
+                [`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null],
+                ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
+                ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
+                ...(summary.bonusTotal > 0 ? [["Tävlingsbonus 🏆", summary.bonusTotal, "#f5a623"]] : []),
+              ].map(([label, val, color], i, arr) => (
                 <div key={label} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "7px 0",
                   borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
                 }}>
                   <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
-                  <span style={{ color: val > 0 ? "#c8deff" : "#334", fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 15 }}>{fmt(val)}</span>
+                  <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 15 }}>{fmt(val)}</span>
                 </div>
               ))}
             </div>
@@ -782,7 +839,7 @@ export default function LöneKollen() {
                           ) : (
                             <div style={{ background:`${G}15`, border:`1px solid ${GD}`, borderRadius:16, padding:"16px 18px", textAlign:"center", marginBottom:14 }}>
                               <div style={{ color:G, fontWeight:700, fontSize:15, marginBottom:4 }}>🏆 Du är på högsta nivån!</div>
-                              {lowerStege && <div style={{ color:"#5577aa", fontSize:13 }}>Buffert: {Math.round(curSnitt - lowerStege.snitt).toLocaleString("sv-SE")} kr/dag ner till silver</div>}
+                              <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}><span style={{ color:"#5577aa", fontSize:12 }}>Snitt: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span><span style={{ color:"#5577aa", fontSize:12 }}>Gräns: {(aktivStege_?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span></div>
                             </div>
                           )}
 
@@ -873,8 +930,13 @@ export default function LöneKollen() {
                                   {(nästaStegeTB.snitt - nySnitt).toLocaleString("sv-SE")} kr/dag till {nästaStegeTB.procent}%-serien
                                 </div>
                               ) : (
-                                <div style={{ marginTop:6, background:`${G}20`, borderRadius:8, padding:"6px 10px", textAlign:"center" }}>
-                                  <div style={{ color:G, fontSize:11, fontWeight:700 }}>🏆 Högsta serien!</div>
+                                <div style={{ marginTop:6, background:`${G}20`, borderRadius:8, padding:"8px 10px" }}>
+                                  <div style={{ color:G, fontSize:11, fontWeight:700, marginBottom:4 }}>🏆 Högsta serien!</div>
+                                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                                    <span style={{ color:"#5577aa", fontSize:11 }}>Snitt: {Math.round(nySnitt).toLocaleString("sv-SE")} kr/dag</span>
+                                    <span style={{ color:"#5577aa", fontSize:11 }}>Gräns: {(aktivTier?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span>
+                                  </div>
+                                </div>
                                 </div>
                               )}
                             </div>
@@ -1020,7 +1082,7 @@ export default function LöneKollen() {
                         <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:12, padding:"20px", textAlign:"center" }}>
                           <div style={{ fontSize:32, marginBottom:8 }}>🏆</div>
                           <div style={{ color:G, fontWeight:700, fontSize:18, marginBottom:6 }}>Högsta serien!</div>
-                          {lowerStege && <div style={{ color:"#5577aa", fontSize:13 }}>Du har {Math.round(curSnitt - lowerStege.snitt).toLocaleString("sv-SE")} kr/dag buffert kvar</div>}
+                          <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}><span style={{ color:"#5577aa", fontSize:12 }}>Snitt: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span><span style={{ color:"#5577aa", fontSize:12 }}>Gräns: {(aktivStege_?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span></div>
                         </div>
                       )}
                     </div>
@@ -1069,7 +1131,7 @@ export default function LöneKollen() {
                       </>) : (
                         <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:10, padding:"14px", textAlign:"center" }}>
                           <div style={{ color:G, fontWeight:700, fontSize:16 }}>🏆 Du är på toppnivå!</div>
-                          {lowerStege && <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>Buffert: {Math.round(curSnitt - lowerStege.snitt).toLocaleString("sv-SE")} kr/dag ner till {lowerStege.procent}%-serien</div>}
+                          <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}><span style={{ color:"#5577aa", fontSize:12 }}>Snitt: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span><span style={{ color:"#5577aa", fontSize:12 }}>Gräns: {(aktivStege_?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span></div>
                         </div>
                       )}
                     </div>
@@ -1116,19 +1178,28 @@ export default function LöneKollen() {
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🏆 Bästa passet denna månad</div>
                       {bestPass ? (<>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                          <div>
-                            <div style={{ color:"#fff", fontWeight:600, fontSize:15 }}>{DAG_META[bestPass.dagTyp]?.emoji} {DAG_META[bestPass.dagTyp]?.label}</div>
-                            <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bestPass.startMin)} – {minToHHMM(bestPass.endMin)}</div>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap: 8 }}>
+                            <span style={{ fontSize:20 }}>{DAG_META[bestPass.dagTyp]?.emoji}</span>
+                            <div>
+                              <div style={{ color:"#fff", fontWeight:600, fontSize:15 }}>{DAG_META[bestPass.dagTyp]?.label}</div>
+                              <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bestPass.startMin)} – {minToHHMM(bestPass.endMin)}</div>
+                            </div>
                           </div>
                           <div style={{ textAlign:"right" }}>
                             <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:24 }}>{Math.round(bestPass.tb ?? 0).toLocaleString("sv-SE")} kr</div>
                             <div style={{ color:"#5577aa", fontSize:11 }}>TB</div>
                           </div>
                         </div>
-                        <div style={{ background:ND, borderRadius:8, padding:"8px 12px", display:"flex", justifyContent:"space-between" }}>
-                          <span style={{ color:"#5577aa", fontSize:12 }}>Lönebidrag</span>
-                          <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}>{fmt(calcDayPay(bestPass.dagTyp, bestPass.startMin, bestPass.endMin, settings.timlön))}</span>
+                        <div style={{ display:"flex", gap:8 }}>
+                          <div style={{ flex:1, background:ND, borderRadius:8, padding:"8px 12px" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:2 }}>Timlön</div>
+                            <div style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}>{fmt(calcDayPay(bestPass.dagTyp, bestPass.startMin, bestPass.endMin, settings.timlön))}</div>
+                          </div>
+                          <div style={{ flex:1, background:ND, borderRadius:8, padding:"8px 12px" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:2 }}>Bidrag till provision</div>
+                            <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}>{fmt((bestPass.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100)}</div>
+                          </div>
                         </div>
                       </>) : (
                         <div style={{ color:"#4466aa", textAlign:"center", padding:"20px 0" }}>Inga säljpass registrerade ännu</div>
