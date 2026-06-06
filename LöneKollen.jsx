@@ -469,7 +469,50 @@ export default function LöneKollen() {
             {/* TB-sektion */}
             {summary.säljDagar > 0 && (
               <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid ${GD}` }}>
-                <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>📊 TB & Provision</div>
+
+                {/* ── HERO: Total provision-% + KPI-badges ── */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${N}` }}>
+                  <div>
+                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Total provision</div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 44, lineHeight: 1 }}>
+                        {(summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)}%
+                      </div>
+                      <div style={{ color: "#5577aa", fontSize: 12 }}>av TB</div>
+                    </div>
+                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 4 }}>
+                      {fmt(summary.tbProv)} · {summary.säljDagar} säljdagar
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                    {/* Serie-badge */}
+                    <div style={{ background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 20, padding: "4px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 14 }}>
+                        {summary.nästaStege ? "🥈" : "🥇"}
+                      </span>
+                      <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{summary.aktivStege?.procent}%</span>
+                    </div>
+                    {/* KPI-badges */}
+                    {summary.kpiResults?.map(kpi => (
+                      <div key={kpi.id} style={{
+                        background: kpi.nådd ? `${G}20` : "#1a0000",
+                        border: `1px solid ${kpi.nådd ? GD : "#aa2222"}`,
+                        borderRadius: 20, padding: "4px 12px",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}>
+                        <span style={{ fontSize: 12 }}>{kpi.nådd ? "✅" : "⬜"}</span>
+                        <span style={{ color: kpi.nådd ? G : "#5577aa", fontSize: 12, fontWeight: 600 }}>
+                          {kpi.namn} +{kpi.procent}%
+                        </span>
+                        <span style={{ color: kpi.nådd ? G : "#5577aa", fontSize: 11 }}>
+                          ({kpi.snitt.toFixed(1)}/{kpi.mål})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── TB-stats ── */}
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <div style={{ flex: 1, background: ND, borderRadius: 10, padding: "10px 12px" }}>
                     <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Total TB</div>
@@ -480,34 +523,61 @@ export default function LöneKollen() {
                     <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.snittTB).toLocaleString("sv-SE")} kr</div>
                   </div>
                 </div>
-                <div style={{ background: `${G}15`, border: `1px solid ${GD}`, borderRadius: 10, padding: "10px 14px", marginBottom: summary.nästaStege ? 8 : 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ color: "#5bc58899", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Aktiv serie</div>
-                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{summary.aktivStege.procent}% av TB</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ color: "#5577aa", fontSize: 10 }}>TB-provision</div>
-                      <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(summary.tbProv)}</div>
-                    </div>
-                  </div>
-                </div>
+
+                {/* ── Serie-status / Tillgodo ── */}
                 {summary.nästaStege ? (() => {
-                  const extraKr      = summary.totalTB * (summary.nästaStege.procent - summary.aktivStege.procent) / 100;
-                  const extraNetto   = extraKr * (1 - settings.skatt / 100);
-                  // Projicerat TB om resterande pass når nästa steges snitt
-                  const projTB       = summary.totalTB + (passKvar * summary.nästaStege.snitt);
-                  const projExtraKr  = projTB * (summary.nästaStege.procent - summary.aktivStege.procent) / 100;
+                  const extraKr        = summary.totalTB * (summary.nästaStege.procent - summary.aktivStege.procent) / 100;
+                  const extraNetto     = extraKr * (1 - settings.skatt / 100);
+                  const projTB         = summary.totalTB + (passKvar * summary.nästaStege.snitt);
+                  const projExtraKr    = projTB * (summary.nästaStege.procent - summary.aktivStege.procent) / 100;
                   const projExtraNetto = projExtraKr * (1 - settings.skatt / 100);
-                  return (
-                    <div style={{ marginTop: 10, background: "#0d1f00", border: "2px solid #f5a62366", borderRadius: 14, padding: "14px 16px" }}>
+                  const goldSnitt      = summary.aktivStege?.snitt ?? 0;
+                  const tbTillgodo     = summary.totalTB - goldSnitt * summary.säljDagar;
+                  const överskott      = tbTillgodo >= 0;
+                  return (<>
+                    {/* TB tillgodo */}
+                    <div style={{
+                      background: överskott ? `${G}15` : "#1a0000",
+                      border: `1px solid ${överskott ? GD : "#aa2222"}`,
+                      borderRadius: 10, padding: "10px 14px", marginBottom: 8,
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      <div>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>TB tillgodo på {summary.aktivStege?.procent}%-nivån</div>
+                        <div style={{ color: "#5577aa", fontSize: 11 }}>{Math.round(summary.totalTB).toLocaleString("sv-SE")} − {Math.round(goldSnitt * summary.säljDagar).toLocaleString("sv-SE")} kr</div>
+                      </div>
+                      <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                        {överskott ? "+" : ""}{Math.round(tbTillgodo).toLocaleString("sv-SE")} kr
+                      </div>
+                    </div>
+                    {/* KPI tillgodo */}
+                    {summary.kpiResults?.filter(k => k.aktiv !== false).map(kpi => {
+                      const kpiDiff = Math.round(kpi.snitt * summary.säljDagar - kpi.mål * summary.säljDagar);
+                      const kpiPlus = kpiDiff >= 0;
+                      return (
+                        <div key={kpi.id} style={{
+                          background: kpiPlus ? `${G}15` : "#1a0000",
+                          border: `1px solid ${kpiPlus ? GD : "#aa2222"}`,
+                          borderRadius: 10, padding: "10px 14px", marginBottom: 8,
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                        }}>
+                          <div>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{kpi.namn} tillgodo</div>
+                            <div style={{ color: "#5577aa", fontSize: 11 }}>{(kpi.snitt * summary.säljDagar).toFixed(1)} / {(kpi.mål * summary.säljDagar).toFixed(0)} st krävs</div>
+                          </div>
+                          <div style={{ color: kpiPlus ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                            {kpiPlus ? "+" : ""}{kpiDiff} st
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {/* Om du når nästa stege */}
+                    <div style={{ background: "#0d1f00", border: "2px solid #f5a62366", borderRadius: 14, padding: "14px 16px" }}>
                       <div style={{ color: "#f5a62399", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                         💰 Om du når {summary.nästaStege.procent}%-serien
                       </div>
-
-                      {/* På redan tjänad TB */}
                       <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 6 }}>På redan tjänade {Math.round(summary.totalTB).toLocaleString("sv-SE")} kr TB</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: passKvar > 0 ? 12 : 0 }}>
                         <div style={{ background: "#0a0a00", borderRadius: 10, padding: "10px 12px" }}>
                           <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Brutto</div>
                           <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 20 }}>+{fmt(extraKr)}</div>
@@ -517,13 +587,11 @@ export default function LöneKollen() {
                           <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 20 }}>+{fmt(extraNetto)}</div>
                         </div>
                       </div>
-
-                      {/* Hela månaden inkl kvarvarande pass */}
                       {passKvar > 0 && (<>
                         <div style={{ borderTop: "1px solid #f5a62222", paddingTop: 10, marginBottom: 6 }}>
-                          <div style={{ color: "#5577aa", fontSize: 11 }}>Hela månaden inkl {passKvar} pass kvar (snitt {summary.nästaStege.snitt.toLocaleString("sv-SE")} kr/pass)</div>
+                          <div style={{ color: "#5577aa", fontSize: 11 }}>Hela månaden inkl {passKvar} pass kvar</div>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                           <div style={{ background: "#0a0a00", borderRadius: 10, padding: "10px 12px" }}>
                             <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Brutto</div>
                             <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 20 }}>+{fmt(projExtraKr)}</div>
@@ -533,104 +601,66 @@ export default function LöneKollen() {
                             <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 20 }}>+{fmt(projExtraNetto)}</div>
                           </div>
                         </div>
+                        <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center", marginTop: 8 }}>
+                          Höj snittet med {Math.round(summary.nästaStege.snitt - summary.snittTB).toLocaleString("sv-SE")} kr/dag
+                        </div>
                       </>)}
-
-                      <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center" }}>
-                        Höj snittet med {Math.round(summary.nästaStege.snitt - summary.snittTB).toLocaleString("sv-SE")} kr/dag
-                      </div>
                     </div>
-                  );
-                })() : summary.säljDagar > 0 && (
-                  <div style={{ marginTop: 8, background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px" }}>
-                    <div style={{ color: G, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>🏆 Högsta serien!</div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Ditt snitt</div>
-                        <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.snittTB).toLocaleString("sv-SE")} kr/dag</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Guldgräns</div>
-                        <div style={{ color: "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{(summary.aktivStege?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {/* Tillgodo / underskott */}
-                {summary.säljDagar > 0 && (() => {
-                  const goldSnitt   = summary.aktivStege?.snitt ?? 0;
-                  const krävdTB     = goldSnitt * summary.säljDagar;
-                  const tbTillgodo  = summary.totalTB - krävdTB;
-                  const överskott   = tbTillgodo >= 0;
-                  return (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                      {/* TB tillgodo */}
-                      <div style={{
-                        background: överskott ? `${G}15` : "#1a0000",
-                        border: `1px solid ${överskott ? GD : "#aa2222"}`,
-                        borderRadius: 10, padding: "10px 14px",
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                      }}>
+                  </>);
+                })() : (() => {
+                  const goldSnitt  = summary.aktivStege?.snitt ?? 0;
+                  const tbTillgodo = summary.totalTB - goldSnitt * summary.säljDagar;
+                  const överskott  = tbTillgodo >= 0;
+                  return (<>
+                    <div style={{ background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
+                      <div style={{ color: G, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>🏆 Högsta serien!</div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <div>
-                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>TB tillgodo på guldnivån</div>
-                          <div style={{ color: "#5577aa", fontSize: 11 }}>{Math.round(summary.totalTB).toLocaleString("sv-SE")} − {Math.round(krävdTB).toLocaleString("sv-SE")} kr</div>
-                        </div>
-                        <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
-                          {överskott ? "+" : ""}{Math.round(tbTillgodo).toLocaleString("sv-SE")} kr
-                        </div>
-                      </div>
-
-                      {/* KPI tillgodo */}
-                      {summary.kpiResults?.filter(k => k.aktiv !== false).map(kpi => {
-                        const kpiKrävda  = kpi.mål * summary.säljDagar;
-                        const kpiTotalt  = kpi.snitt * summary.säljDagar;
-                        const kpiDiff    = Math.round(kpiTotalt - kpiKrävda);
-                        const kpiPlus    = kpiDiff >= 0;
-                        return (
-                          <div key={kpi.id} style={{
-                            background: kpiPlus ? `${G}15` : "#1a0000",
-                            border: `1px solid ${kpiPlus ? GD : "#aa2222"}`,
-                            borderRadius: 10, padding: "10px 14px",
-                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                          }}>
-                            <div>
-                              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{kpi.namn} tillgodo</div>
-                              <div style={{ color: "#5577aa", fontSize: 11 }}>{kpiTotalt.toFixed(1)} / {kpiKrävda} st krävs</div>
-                            </div>
-                            <div style={{ color: kpiPlus ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
-                              {kpiPlus ? "+" : ""}{kpiDiff} st
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-                {/* KPI-status */}
-                {summary.kpiResults?.length > 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${N}` }}>
-                    <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>KPI</div>
-                    {summary.kpiResults.map(kpi => (
-                      <div key={kpi.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <div>
-                          <span style={{ fontSize: 12 }}>{kpi.nådd ? "✅" : "⬜"}</span>
-                          <span style={{ color: kpi.nådd ? "#fff" : "#5577aa", fontSize: 13, marginLeft: 6 }}>{kpi.namn}</span>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Ditt snitt</div>
+                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{Math.round(summary.snittTB).toLocaleString("sv-SE")} kr/dag</div>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <span style={{ color: kpi.nådd ? G : "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 13 }}>
-                            {kpi.snitt.toFixed(1)}/{kpi.mål} st
-                          </span>
-                          <span style={{ color: kpi.nådd ? G : "#334", fontSize: 11, marginLeft: 6 }}>+{kpi.procent}%</span>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Guldgräns</div>
+                          <div style={{ color: "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{goldSnitt.toLocaleString("sv-SE")} kr/dag</div>
                         </div>
                       </div>
-                    ))}
-                    {summary.kpiProcent > 0 && (
-                      <div style={{ background: `${G}15`, borderRadius: 8, padding: "6px 10px", marginTop: 6, display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ color: "#5577aa", fontSize: 12 }}>Total provision inkl KPI</span>
-                        <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}>{summary.aktivStege?.procent + summary.kpiProcent}%</span>
+                    </div>
+                    <div style={{
+                      background: överskott ? `${G}15` : "#1a0000",
+                      border: `1px solid ${överskott ? GD : "#aa2222"}`,
+                      borderRadius: 10, padding: "10px 14px", marginBottom: 8,
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      <div>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>TB tillgodo på guldnivån</div>
+                        <div style={{ color: "#5577aa", fontSize: 11 }}>{Math.round(summary.totalTB).toLocaleString("sv-SE")} − {Math.round(goldSnitt * summary.säljDagar).toLocaleString("sv-SE")} kr</div>
                       </div>
-                    )}
-                  </div>
-                )}
+                      <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                        {överskott ? "+" : ""}{Math.round(tbTillgodo).toLocaleString("sv-SE")} kr
+                      </div>
+                    </div>
+                    {summary.kpiResults?.filter(k => k.aktiv !== false).map(kpi => {
+                      const kpiDiff = Math.round(kpi.snitt * summary.säljDagar - kpi.mål * summary.säljDagar);
+                      const kpiPlus = kpiDiff >= 0;
+                      return (
+                        <div key={kpi.id} style={{
+                          background: kpiPlus ? `${G}15` : "#1a0000",
+                          border: `1px solid ${kpiPlus ? GD : "#aa2222"}`,
+                          borderRadius: 10, padding: "10px 14px",
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                        }}>
+                          <div>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{kpi.namn} tillgodo</div>
+                            <div style={{ color: "#5577aa", fontSize: 11 }}>{(kpi.snitt * summary.säljDagar).toFixed(1)} / {(kpi.mål * summary.säljDagar).toFixed(0)} st krävs</div>
+                          </div>
+                          <div style={{ color: kpiPlus ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                            {kpiPlus ? "+" : ""}{kpiDiff} st
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>);
+                })()}
               </div>
             )}
 
