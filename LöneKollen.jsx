@@ -118,10 +118,10 @@ export default function LöneKollen() {
   const [sparkTab, setSparkTab]       = useState("live");
   const [jobbläge, setJobbläge]       = useState("ledig");
   const [dagsmål, setDagsmål]         = useState(() => { try { return parseFloat(localStorage.getItem("lk-dagsmål")) || 10000; } catch { return 10000; } });
-  const [passKvar, setPassKvar]       = useState(() => { try { return parseInt(localStorage.getItem("lk-passkvar")) || 5; } catch { return 5; } });
+  const [passKvar, setPassKvar]       = useState(5); // fallback, overridden below
+  const [planeraOpen, setPlaneraOpen] = useState(false);
 
   useEffect(() => { try { localStorage.setItem("lk-dagsmål", dagsmål); } catch {} }, [dagsmål]);
-  useEffect(() => { try { localStorage.setItem("lk-passkvar", passKvar); } catch {} }, [passKvar]);
   const [vadomTB, setVadomTB]         = useState("");
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
   const [sparkDagTyp, setSparkDagTyp] = useState("vardag");
@@ -146,6 +146,12 @@ export default function LöneKollen() {
   const days   = mData.days || [];
   const monthStege = mData.tbStege ?? settings.tbStege ?? [];
 
+  // Auto-beräkna pass kvar från planerade
+  const planerade    = mData.planerade ?? {};
+  const planeradeTotal = (planerade.vardag ?? 0) + (planerade.lördag ?? 0) + (planerade.söndag ?? 0) + (planerade.röd ?? 0);
+  const registrerade = days.filter(d => d.passTyp !== "annan").length;
+  const passKvar     = planeradeTotal > 0 ? Math.max(0, planeradeTotal - registrerade) : 5;
+
   function mutateMonth(fn) {
     setMonths(prev => {
       const cur = prev[month] || { days: [] };
@@ -163,6 +169,10 @@ export default function LöneKollen() {
 
   function saveMonthKPI(kpiMål) {
     mutateMonth(cur => ({ ...cur, kpiMål }));
+  }
+
+  function savePlanerade(p) {
+    mutateMonth(cur => ({ ...cur, planerade: p }));
   }
 
   function saveDay(day) {
@@ -441,29 +451,36 @@ export default function LöneKollen() {
             </div>
 
             {/* Pass-räknare */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
               {(summary.isManual ? [
-                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0],
-                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0],
-                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0],
-                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0],
-                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0],
+                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0, null],
+                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0, null],
+                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0, null],
+                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0, null],
+                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
               ].filter(([,v]) => v > 0) : [
-                ["📋 Pass",      days.length],
-                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length],
-                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length],
-                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length],
-                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length]] : []),
-              ]).map(([label, val]) => (
+                ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
+                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           planerade.vardag ?? null],
+                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           planerade.lördag ?? null],
+                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           planerade.söndag ?? null],
+                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
+              ]).map(([label, val, plan]) => (
                 <div key={label} style={{
                   background: ND, border: `1px solid ${N}`, borderRadius: 8,
                   padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
                 }}>
                   <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
                   <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
-                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{val}</span>
+                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>
+                    {val}{plan !== null ? <span style={{ color: "#5577aa", fontWeight: 500 }}>/{plan}</span> : ""}
+                  </span>
                 </div>
               ))}
+              <button onClick={() => setPlaneraOpen(true)} style={{
+                background: "transparent", border: `1px solid ${N}`,
+                borderRadius: 8, color: "#5577aa", fontSize: 12,
+                padding: "5px 10px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>✏️ Planera</button>
             </div>
 
             {/* TB-sektion */}
@@ -1055,11 +1072,22 @@ export default function LöneKollen() {
                   <div>
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🎯 Pass kvar denna månad</div>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:16 }}>
-                        <button onClick={() => setPassKvar(p => Math.max(1,p-1))} style={{ width:44, height:44, borderRadius:"12px 0 0 12px", background:G, border:"none", color:"#001435", fontSize:22, fontWeight:900, cursor:"pointer" }}>−</button>
-                        <div style={{ width:80, height:44, background:ND, display:"flex", alignItems:"center", justifyContent:"center", border:`1px solid ${N}`, borderLeft:"none", borderRight:"none", color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:24 }}>{passKvar}</div>
-                        <button onClick={() => setPassKvar(p => p+1)} style={{ width:44, height:44, borderRadius:"0 12px 12px 0", background:G, border:"none", color:"#001435", fontSize:22, fontWeight:900, cursor:"pointer" }}>+</button>
-                      </div>
+                      {planeradeTotal > 0 ? (
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <div>
+                            <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:42, lineHeight:1 }}>{passKvar}</div>
+                            <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>pass kvar av {planeradeTotal} planerade · {registrerade} klara</div>
+                          </div>
+                          <div style={{ background: ND, borderRadius: 10, padding: "8px 12px", textAlign:"right" }}>
+                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>Framsteg</div>
+                            <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{Math.round(registrerade/planeradeTotal*100)}%</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ color:"#4466aa", fontSize:13, textAlign:"center", padding:"8px 0" }}>
+                          Tryck ✏️ Planera på månadsfliken för att sätta antal pass
+                        </div>
+                      )}
 
                       {nästaStege_ ? (<>
                         <div style={{ background:`${G}15`, border:`1px solid ${GD}`, borderRadius:12, padding:"16px", marginBottom:12, textAlign:"center" }}>
@@ -1348,6 +1376,14 @@ export default function LöneKollen() {
       </div>
 
       {/* ════════════════ LÄGG TILL/REDIGERA-MODAL ════════════════ */}
+      {planeraOpen && (
+        <PlaneraModal
+          initialPlan={mData.planerade ?? {}}
+          onSave={p => { savePlanerade(p); setPlaneraOpen(false); }}
+          onCancel={() => setPlaneraOpen(false)}
+        />
+      )}
+
       {stegeOpen && (
         <StegeModal
           initialStege={mData.tbStege ?? settings.tbStege ?? []}
@@ -1397,6 +1433,61 @@ export default function LöneKollen() {
         />
       )}
     </>
+  );
+}
+
+// ─── Planera-modal ────────────────────────────────────────────────────────
+function PlaneraModal({ initialPlan, onSave, onCancel }) {
+  const [plan, setPlan] = useState({
+    vardag: initialPlan.vardag ?? 0,
+    lördag: initialPlan.lördag ?? 0,
+    söndag: initialPlan.söndag ?? 0,
+    röd:    initialPlan.röd    ?? 0,
+  });
+
+  const total = plan.vardag + plan.lördag + plan.söndag + plan.röd;
+
+  function Step({ dagTyp, label, emoji }) {
+    const val = plan[dagTyp] ?? 0;
+    return (
+      <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{emoji} {label}</div>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <button onClick={() => setPlan(p => ({ ...p, [dagTyp]: Math.max(0, (p[dagTyp] ?? 0) - 1) }))}
+            style={{ width: 38, height: 38, borderRadius: "10px 0 0 10px", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>−</button>
+          <div style={{ width: 44, height: 38, background: ND, display: "flex", alignItems: "center", justifyContent: "center", color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, borderTop: `1px solid ${N}`, borderBottom: `1px solid ${N}` }}>{val}</div>
+          <button onClick={() => setPlan(p => ({ ...p, [dagTyp]: (p[dagTyp] ?? 0) + 1 }))}
+            style={{ width: 38, height: 38, borderRadius: "0 10px 10px 0", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>+</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 100 }}>
+      <div style={{ width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0", padding: "20px 18px 40px", animation: "slideUp .25s ease", maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Planerade pass</div>
+          <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 20 }}>
+          Sätter max antal pass per dagtyp — Gnistan räknar ut hur många som är kvar automatiskt.
+        </div>
+        <Step dagTyp="vardag" label="Vardagar"   emoji="💼" />
+        <Step dagTyp="lördag" label="Lördagar"  emoji="🛒" />
+        <Step dagTyp="söndag" label="Söndagar"  emoji="☀️" />
+        <Step dagTyp="röd"    label="Röda dagar" emoji="🔴" />
+        <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 20, display: "flex", justifyContent: "space-between" }}>
+          <span style={{ color: "#5577aa", fontSize: 13 }}>Totalt planerade pass</span>
+          <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{total}</span>
+        </div>
+        <button onClick={() => onSave(plan)} style={{
+          width: "100%", padding: 16, background: G, border: "none",
+          borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        }}>Spara</button>
+      </div>
+    </div>
   );
 }
 
