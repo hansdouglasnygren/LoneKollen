@@ -118,9 +118,7 @@ export default function LöneKollen() {
   const [sparkTab, setSparkTab]       = useState("live");
   const [jobbläge, setJobbläge]       = useState("ledig");
   const [dagsmål, setDagsmål]         = useState(() => { try { return parseFloat(localStorage.getItem("lk-dagsmål")) || 10000; } catch { return 10000; } });
-  const [passKvar, setPassKvar]       = useState(5); // fallback, overridden below
   const [planeraOpen, setPlaneraOpen] = useState(false);
-
   useEffect(() => { try { localStorage.setItem("lk-dagsmål", dagsmål); } catch {} }, [dagsmål]);
   const [vadomTB, setVadomTB]         = useState("");
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
