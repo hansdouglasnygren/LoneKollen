@@ -563,11 +563,6 @@ export default function LöneKollen() {
                     </div>
                   );
                 })()}
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${N}` }}>
-                    <span style={{ color: "#5577aa", fontSize: 13 }}>Skottpengar</span>
-                    <span style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>{fmt(summary.skottTotal)}</span>
-                  </div>
-                )}
                 {/* KPI-status */}
                 {summary.kpiResults?.length > 0 && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${N}` }}>
@@ -598,24 +593,29 @@ export default function LöneKollen() {
             )}
 
             {/* Uppdelning */}
-            <div style={{ ...cardStyle, marginBottom: 18 }}>
+            <div style={{ ...cardStyle, marginBottom: 14 }}>
               {[
                 ["Baslön", summary.baseLön, null],
                 ["OB-tillägg", summary.obLön, null],
                 [`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null],
-                ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
+                ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
                 ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
-                ...(summary.bonusTotal > 0 ? [["Tävlingsbonus 🏆", summary.bonusTotal, "#f5a623"]] : []),
+                ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
               ].map(([label, val, color], i, arr) => (
                 <div key={label} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "7px 0",
-                  borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
+                  borderBottom: `1px solid ${N}`,
                 }}>
                   <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
                   <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 15 }}>{fmt(val)}</span>
                 </div>
               ))}
+              {/* Totalsumma */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px", marginTop: 4 }}>
+                <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>Brutto totalt</span>
+                <span style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 18 }}>{fmt(summary.brutto)}</span>
+              </div>
             </div>
 
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
