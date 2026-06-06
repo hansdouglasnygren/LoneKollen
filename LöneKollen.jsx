@@ -440,31 +440,6 @@ export default function LöneKollen() {
               </div>
             </div>
 
-              {/* Netto + Semesterlön sida vid sida */}
-              <div style={{ display: "flex" }}>
-                <div style={{
-                  flex: 1, background: NC, padding: "14px 18px",
-                  borderRadius: "0 0 0 16px", borderRight: `1px solid ${ND}`,
-                }}>
-                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
-                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
-                </div>
-                {settings.semesterLön && (
-                  <div style={{
-                    flex: 1, background: `${G}18`, padding: "14px 18px",
-                    borderRadius: "0 0 16px 0",
-                  }}>
-                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
-                    </div>
-                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
-                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
             {/* Pass-räknare */}
             <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
               {(summary.isManual ? [
