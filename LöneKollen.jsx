@@ -594,6 +594,15 @@ export default function LöneKollen() {
 
             {/* Uppdelning */}
             <div style={{ ...cardStyle, marginBottom: 14 }}>
+              {/* Brutto totalt — högst upp */}
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "10px 14px", marginBottom: 12,
+                background: N, borderRadius: 10,
+              }}>
+                <span style={{ color: G, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Brutto totalt</span>
+                <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>{fmt(summary.brutto)}</span>
+              </div>
               {[
                 ["Baslön", summary.baseLön, null],
                 ["OB-tillägg", summary.obLön, null],
@@ -605,17 +614,12 @@ export default function LöneKollen() {
                 <div key={label} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "7px 0",
-                  borderBottom: `1px solid ${N}`,
+                  borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
                 }}>
                   <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
                   <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 15 }}>{fmt(val)}</span>
                 </div>
               ))}
-              {/* Totalsumma */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px", marginTop: 4 }}>
-                <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>Brutto totalt</span>
-                <span style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 18 }}>{fmt(summary.brutto)}</span>
-              </div>
             </div>
 
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
