@@ -111,7 +111,8 @@ export default function LöneKollen() {
   const [tab, setTab]           = useState("mån");
   const [addOpen, setAddOpen]   = useState(false);
   const [editId, setEditId]     = useState(null);
-  const [stegeOpen, setStegeOpen] = useState(false);
+  const [stegeOpen, setStegeOpen]         = useState(false);
+  const [bruttoOpen, setBruttoOpen]       = useState(false);
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -366,20 +367,78 @@ export default function LöneKollen() {
 
             {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
             <div style={{ marginBottom: 14 }}>
-              {/* Brutto — stor och tydlig */}
-              <div style={{
-                background: N, borderRadius: "16px 16px 0 0",
-                padding: "18px 18px 14px",
-                borderBottom: `1px solid ${ND}`,
-              }}>
-                <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
-                <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
-                <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
-                  <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
-                  {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
-                  {summary.bonusTotal > 0 && <span>🏆 Bonus {fmt(summary.bonusTotal)}</span>}
+              {/* Brutto — tryckbar för att se uppdelning */}
+              <div
+                onClick={() => setBruttoOpen(o => !o)}
+                style={{
+                  background: N, borderRadius: bruttoOpen ? "16px 16px 0 0" : 16,
+                  padding: "18px 18px 14px", cursor: "pointer",
+                  borderBottom: bruttoOpen ? `1px solid ${ND}` : "none",
+                  transition: "border-radius .2s",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
+                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
+                      <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
+                      {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
+                      {summary.bonusTotal > 0 && <span>🏆 {fmt(summary.bonusTotal)}</span>}
+                    </div>
+                  </div>
+                  <div style={{ color: "#5577aa", fontSize: 18, marginTop: 4 }}>{bruttoOpen ? "▲" : "▼"}</div>
                 </div>
               </div>
+
+              {/* Expanderad uppdelning */}
+              {bruttoOpen && (
+                <div style={{ background: NC, padding: "12px 18px", borderBottom: `1px solid ${ND}` }}>
+                  {[
+                    ["Baslön", summary.baseLön, null],
+                    ["OB-tillägg", summary.obLön, null],
+                    [`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null],
+                    ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
+                    ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
+                    ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
+                  ].map(([label, val, color], i, arr) => (
+                    <div key={label} style={{
+                      display: "flex", justifyContent: "space-between",
+                      padding: "6px 0",
+                      borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
+                    }}>
+                      <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
+                      <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 14 }}>{fmt(val)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Netto + Semesterlön */}
+              <div style={{ display: "flex" }}>
+                <div style={{
+                  flex: 1, background: NC, padding: "14px 18px",
+                  borderRadius: bruttoOpen ? "0 0 0 16px" : "0 0 0 16px",
+                  borderRight: `1px solid ${ND}`,
+                }}>
+                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
+                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
+                </div>
+                {settings.semesterLön && (
+                  <div style={{
+                    flex: 1, background: `${G}18`, padding: "14px 18px",
+                    borderRadius: "0 0 16px 0",
+                  }}>
+                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
+                    </div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
+                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
               {/* Netto + Semesterlön sida vid sida */}
               <div style={{ display: "flex" }}>
@@ -599,36 +658,6 @@ export default function LöneKollen() {
                 )}
               </div>
             )}
-
-            {/* Uppdelning */}
-            <div style={{ ...cardStyle, marginBottom: 14 }}>
-              {/* Brutto totalt — högst upp */}
-              <div style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "10px 14px", marginBottom: 12,
-                background: N, borderRadius: 10,
-              }}>
-                <span style={{ color: G, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Brutto totalt</span>
-                <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>{fmt(summary.brutto)}</span>
-              </div>
-              {[
-                ["Baslön", summary.baseLön, null],
-                ["OB-tillägg", summary.obLön, null],
-                [`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null],
-                ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
-                ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
-                ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
-              ].map(([label, val, color], i, arr) => (
-                <div key={label} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "7px 0",
-                  borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
-                }}>
-                  <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
-                  <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 15 }}>{fmt(val)}</span>
-                </div>
-              ))}
-            </div>
 
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
               {days.length} pass registrerade
