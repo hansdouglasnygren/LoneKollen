@@ -1471,103 +1471,143 @@ export default function LöneKollen() {
 // ─── Celebration Modal ────────────────────────────────────────────────────
 function CelebrationModal({ celebration, summary, settings, monthStege, onClose }) {
   const { nivå, day, topSnitt } = celebration;
+  const [phase, setPhase] = useState("boom");
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setFrame(f => f + 1), 100);
-    return () => clearInterval(id);
-  }, []);
+    if (phase === "boom") {
+      const t = setTimeout(() => setPhase(nivå === 3 ? "image" : "summary"), 700);
+      return () => clearTimeout(t);
+    }
+    if (phase === "image") {
+      const t = setTimeout(() => setPhase("summary"), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [phase, nivå]);
 
-  const tbProv   = (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100;
-  const pay      = 0; // timlön handled separately
-  const bonus    = day.bonus ?? 0;
-  const tillgodo = Math.round(summary.totalTB - (summary.aktivStege?.snitt ?? 0) * summary.säljDagar);
+  useEffect(() => {
+    if (phase === "summary") {
+      const id = setInterval(() => setFrame(f => f + 1), 80);
+      return () => clearInterval(id);
+    }
+  }, [phase]);
+
+  const tbProv    = (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100;
+  const bonus     = day.bonus ?? 0;
+  const tillgodo  = Math.round(summary.totalTB - (summary.aktivStege?.snitt ?? 0) * summary.säljDagar);
   const överskott = tillgodo >= 0;
 
-  // Emoji-konfetti för nivå 2+
-  const emojis = ["💰","🔥","⚡","🏆","💸","✨","🎊","💥","🌟","👑"];
-  const danielEmojis = ["🍺","🌈","⚡","💥","🎆","🏆","👑","💰","🔥","🎊","💸","✨"];
+  const emojiSet = nivå === 3
+    ? ["🍺","🌈","⚡","💥","🎆","🏆","👑","💰","🔥","🎊","💸","✨","🎉","🌟","💫"]
+    : ["🔥","💸","⚡","🏆","💰","🎊","✨","💥","🌟","🎉"];
 
-  const particles = Array.from({ length: nivå === 3 ? 20 : 12 }, (_, i) => ({
-    emoji: (nivå === 3 ? danielEmojis : emojis)[i % (nivå === 3 ? danielEmojis.length : emojis.length)],
-    x: Math.sin(i * 137.5 + frame * 0.3) * 45 + 50,
-    y: ((frame * 2 + i * 30) % 120) - 10,
-    size: 16 + (i % 3) * 8,
-  }));
+  const particles = phase === "summary" ? Array.from({ length: 14 }, (_, i) => ({
+    emoji: emojiSet[i % emojiSet.length],
+    x: Math.sin(i * 137.5 + frame * 0.4) * 48 + 50,
+    y: ((frame * 3 + i * 25) % 130) - 15,
+    size: 14 + (i % 4) * 6,
+  })) : [];
+
+  if (phase === "boom") return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: nivå === 3 ? "#f5a623" : G,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <style>{`
+        @keyframes boomIn { 0%{opacity:0;transform:scale(0.3)} 40%{opacity:1;transform:scale(1.15)} 70%{transform:scale(0.95)} 100%{transform:scale(1)} }
+        @keyframes danielIn { from{transform:translateY(100%)} to{transform:translateY(0)} }
+        @keyframes summaryUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
+      `}</style>
+      <div style={{ textAlign: "center", animation: "boomIn 0.6s ease" }}>
+        <div style={{ fontSize: 90 }}>{nivå === 3 ? "🍺" : "🔥"}</div>
+        <div style={{ color: "#001435", fontFamily: "Rajdhani, sans-serif", fontWeight: 900, fontSize: 52, letterSpacing: 4 }}>
+          {nivå === 3 ? "BOOM!" : "YES!"}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (phase === "image") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000" }}
+      onClick={() => setPhase("summary")}>
+      <img src="/daniel.png" alt="" style={{
+        width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center",
+        animation: "danielIn 0.5s ease",
+      }} />
+      <div style={{
+        position: "absolute", bottom: 0, left: 0, right: 0,
+        background: "linear-gradient(transparent, rgba(0,10,30,0.95))",
+        padding: "60px 20px 40px", textAlign: "center",
+      }}>
+        <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 900, fontSize: 38, letterSpacing: 3, textShadow: "0 0 20px #f5a62366" }}>
+          OKTOBERFEST-NIVÅ!
+        </div>
+        <div style={{ color: "#fff", fontSize: 14, marginTop: 6, opacity: 0.7 }}>Tryck för sammanfattning</div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end" }}>
-      {/* Bakgrund */}
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: nivå === 3 ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.75)" }} />
-
-      {/* Emoji-partiklar */}
-      {nivå >= 2 && particles.map((p, i) => (
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)" }} />
+      {particles.map((p, i) => (
         <div key={i} style={{
           position: "absolute", left: `${p.x}%`, top: `${p.y}%`,
-          fontSize: p.size, pointerEvents: "none", transition: "top 0.1s linear",
-          zIndex: 201,
+          fontSize: p.size, pointerEvents: "none", zIndex: 201,
         }}>{p.emoji}</div>
       ))}
-
-      {/* Daniel-bild för nivå 3 */}
-      {nivå === 3 && (
-        <div style={{
-          position: "absolute", right: 0, bottom: "38%",
-          width: "55%", zIndex: 202,
-          animation: "slideUp .4s ease",
-        }}>
-          <img src="/daniel.png" alt="Daniel" style={{ width: "100%", borderRadius: "16px 0 0 16px", objectFit: "cover", maxHeight: 300, objectPosition: "top" }} />
-        </div>
-      )}
-
-      {/* Popup-kort */}
       <div style={{
         position: "relative", width: "100%", zIndex: 203,
-        background: nivå === 3 ? "#001435" : nivå === 2 ? "#001435" : "#001435",
-        borderRadius: "24px 24px 0 0",
+        background: "#001435", borderRadius: "24px 24px 0 0",
         borderTop: `3px solid ${nivå === 3 ? "#f5a623" : nivå === 2 ? G : "#5577aa"}`,
         padding: "20px 18px 40px",
-        animation: "slideUp .3s ease",
+        animation: "summaryUp 0.4s ease",
+        maxHeight: "80vh", overflowY: "auto",
       }}>
         {nivå === 3 ? (<>
-          <div style={{ fontSize: 36, marginBottom: 8, textAlign: "center" }}>🍺👑🍺</div>
-          <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 4 }}>OKTOBERFEST-NIVÅ!</div>
-          <div style={{ color: "#fff", fontSize: 14, textAlign: "center", marginBottom: 16 }}>Dubbla budgeten! Daniel hade velat se det här! 🔥</div>
+          <div style={{ fontSize: 30, textAlign: "center", marginBottom: 6 }}>🍺👑🍺</div>
+          <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 26, textAlign: "center", marginBottom: 4 }}>OKTOBERFEST-NIVÅ!</div>
+          <div style={{ color: "#fff", fontSize: 13, textAlign: "center", marginBottom: 16 }}>Dubbla budgeten! Daniel hade velat se det här! 🔥</div>
         </>) : nivå === 2 ? (<>
-          <div style={{ fontSize: 32, marginBottom: 8, textAlign: "center" }}>🔥🏆🔥</div>
-          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 26, textAlign: "center", marginBottom: 4 }}>SUPERPASS!</div>
-          <div style={{ color: "#fff", fontSize: 14, textAlign: "center", marginBottom: 16 }}>Över budgeten — det är så det ska se ut!</div>
+          <div style={{ fontSize: 28, textAlign: "center", marginBottom: 6 }}>🔥🏆🔥</div>
+          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 24, textAlign: "center", marginBottom: 4 }}>SUPERPASS!</div>
+          <div style={{ color: "#fff", fontSize: 13, textAlign: "center", marginBottom: 16 }}>Över budgeten — det är så det ska se ut!</div>
         </>) : (<>
-          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>💪</div>
+          <div style={{ fontSize: 24, textAlign: "center", marginBottom: 6 }}>💪</div>
           <div style={{ color: "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, textAlign: "center", marginBottom: 4 }}>Du är fortfarande med i matchen!</div>
-          <div style={{ color: "#5577aa", fontSize: 13, textAlign: "center", marginBottom: 16 }}>
+          <div style={{ color: "#5577aa", fontSize: 12, textAlign: "center", marginBottom: 16 }}>
             {topSnitt > 0 ? `${(topSnitt - (day.tb ?? 0)).toLocaleString("sv-SE")} kr under budgeten idag` : ""}
           </div>
         </>)}
 
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>TB detta pass</div>
-            <div style={{ color: nivå >= 2 ? G : "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{Math.round(day.tb ?? 0).toLocaleString("sv-SE")} kr</div>
-          </div>
-          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Provisionsbidrag</div>
-            <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(tbProv)}</div>
+        <div style={{ background: ND, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
+          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Passets sammanfattning</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              ["Timlön ink OB", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön))],
+              ["TB-provision", fmt(tbProv)],
+              ...(bonus > 0 ? [["🏆 Tävlingsbonus", fmt(bonus)]] : []),
+              ["Totalt brutto", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön) + tbProv + bonus)],
+            ].map(([label, val]) => (
+              <div key={label} style={{ background: NC, borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{label}</div>
+                <div style={{ color: label === "Totalt brutto" ? G : "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{val}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Månadsläge */}
-        <div style={{ background: överskott ? `${G}15` : "#1a0000", border: `1px solid ${överskott ? GD : "#aa2222"}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
-          <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 4 }}>TB tillgodo på guldnivån denna månad</div>
-          <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+        <div style={{
+          background: överskott ? `${G}15` : "#1a0000",
+          border: `1px solid ${överskott ? GD : "#aa2222"}`,
+          borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div style={{ color: "#5577aa", fontSize: 11 }}>TB tillgodo på guldnivån</div>
+          <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 20 }}>
             {överskott ? "+" : ""}{tillgodo.toLocaleString("sv-SE")} kr
           </div>
-          {!överskott && (
-            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 4 }}>
-              Snitt behöver höjas med {Math.round((summary.aktivStege?.snitt ?? 0) - summary.snittTB).toLocaleString("sv-SE")} kr/dag
-            </div>
-          )}
         </div>
 
         <button onClick={onClose} style={{
@@ -1766,6 +1806,63 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
 }
 
 // ─── Dag-formulär ─────────────────────────────────────────────────────────
+// ─── Svenska helgdagar ────────────────────────────────────────────────────
+function easterDate(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19*a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2*e + 2*i - h - k) % 7;
+  const m = Math.floor((a + 11*h + 22*l) / 451);
+  const month = Math.floor((h + l - 7*m + 114) / 31);
+  const day = ((h + l - 7*m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+function getSwedishHolidays(year) {
+  const easter = easterDate(year);
+  const d = (date) => date.toISOString().slice(0, 10);
+  const offset = (base, days) => { const dt = new Date(base); dt.setDate(dt.getDate() + days); return dt; };
+
+  const holidays = new Set([
+    `${year}-01-01`, // Nyårsdagen
+    `${year}-01-06`, // Trettondag jul
+    d(offset(easter, -2)), // Långfredagen
+    d(easter),              // Påskdagen
+    d(offset(easter, 1)),   // Annandag påsk
+    `${year}-05-01`,        // Första maj
+    d(offset(easter, 39)),  // Kristi himmelsfärd
+    d(offset(easter, 49)),  // Pingstdagen
+    `${year}-06-06`,        // Nationaldagen
+    `${year}-12-25`,        // Juldagen
+    `${year}-12-26`,        // Annandag jul
+  ]);
+
+  // Midsommardagen — lördagen 20-26 juni
+  for (let day = 20; day <= 26; day++) {
+    const dt = new Date(year, 5, day);
+    if (dt.getDay() === 6) { holidays.add(d(dt)); break; }
+  }
+  // Alla helgons dag — lördagen 31 okt - 6 nov
+  for (let day = 31; day <= 37; day++) {
+    const dt = new Date(year, day > 31 ? 10 : 9, day > 31 ? day - 31 : day);
+    if (dt.getDay() === 6) { holidays.add(d(dt)); break; }
+  }
+  return holidays;
+}
+
+function getDagTypFromDate(dateStr) {
+  if (!dateStr) return null;
+  const dt = new Date(dateStr + "T12:00:00");
+  const year = dt.getFullYear();
+  const holidays = getSwedishHolidays(year);
+  if (holidays.has(dateStr)) return "röd";
+  const dow = dt.getDay();
+  if (dow === 0) return "söndag";
+  if (dow === 6) return "lördag";
+  return "vardag";
+}
+
 function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
   const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
@@ -1989,7 +2086,18 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           <input
             type="date"
             value={datum}
-            onChange={e => setDatum(e.target.value)}
+            onChange={e => {
+              const val = e.target.value;
+              setDatum(val);
+              if (!initialDay && val) {
+                const detectedTyp = getDagTypFromDate(val);
+                if (detectedTyp) {
+                  setDagTyp(detectedTyp);
+                  const d = settings.defaults?.[detectedTyp];
+                  if (d) { setStartMin(d.start); setEndMin(d.end); setProv(d.prov ?? 400); }
+                }
+              }
+            }}
             style={{
               width: "100%", background: ND, border: `1px solid ${N}`,
               color: datum ? "#fff" : "#334", borderRadius: 10, padding: "10px 14px",
