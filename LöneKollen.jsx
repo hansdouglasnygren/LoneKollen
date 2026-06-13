@@ -694,9 +694,9 @@ export default function LöneKollen() {
               const meta     = DAG_META[day.dagTyp];
               const breakMin = getBreakMin(day.dagTyp);
               const pay      = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
-              const basePay  = ((day.endMin - day.startMin) - breakMin) / 60 * settings.timlön;
-              const prov     = day.provision ?? settings.prov_default;
-              const total    = pay + prov;
+              const prov     = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
+              const bonus    = day.bonus ?? 0;
+              const totalBrutto = pay + prov + bonus;
               const h        = (day.endMin - day.startMin) / 60;
 
               return (
@@ -717,11 +717,11 @@ export default function LöneKollen() {
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(pay)}</div>
+                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(totalBrutto)}</div>
                       {day.passTyp === "annan"
                         ? <div style={{ color: "#f5a623", fontSize: 11 }}>skott {fmt(day.skott ?? 0)}</div>
                         : day.tb > 0
-                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{day.bonus > 0 ? ` · 🏆 +${day.bonus}` : ""}</div>
+                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{bonus > 0 ? ` · 🏆 +${bonus}` : ""}</div>
                           : null
                       }
                     </div>
