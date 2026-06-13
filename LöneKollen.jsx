@@ -123,6 +123,7 @@ export default function LöneKollen() {
   const [planeraOpen, setPlaneraOpen] = useState(false);
   useEffect(() => { try { localStorage.setItem("lk-dagsmål", dagsmål); } catch {} }, [dagsmål]);
   const [vadomTB, setVadomTB]         = useState("");
+  const [drömSnitt, setDrömSnitt]     = useState("");
   const [nowMin, setNowMin]       = useState(() => { const d = new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60; });
   const [sparkDagTyp, setSparkDagTyp] = useState("vardag");
   const [sparkStart, setSparkStart]   = useState(() => settings.defaults?.vardag?.start ?? 9*60+45);
@@ -1312,43 +1313,157 @@ export default function LöneKollen() {
                 )}
 
                 {/* ── TEMPO ── */}
-                {sparkTab === "tempo" && (
-                  <div>
-                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
-                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:14 }}>📊 Tempo just nu</div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                {sparkTab === "tempo" && (() => {
+                  const topTier      = [...stege].sort((a,b) => b.snitt - a.snitt)[0] ?? { snitt: 0, procent: 0 };
+                  const kpiP         = summary?.kpiProcent ?? 0;
+                  const totalProcent = (aktivStege_?.procent ?? 0) + kpiP;
+
+                  // Beräkna projicerad timlön för resterande pass (använd sparkDagTyp-standard)
+                  const lönPerPass   = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön);
+
+                  // 1. Håller du snittet → projicerad månadslön
+                  const projTB       = curTotalTB + passKvar * curSnitt;
+                  const projProv     = projTB * totalProcent / 100;
+                  const projLön      = days.reduce((s, d) => s + calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön), 0)
+                                     + passKvar * lönPerPass;
+                  const projBrutto   = projLön + projProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const projNetto    = projBrutto * (1 - settings.skatt / 100);
+
+                  // 2. Lägsta acceptabla TB för att hålla nuvarande tier
+                  const minTBPerPass = curSäljDagar > 0 && passKvar > 0
+                    ? Math.max(0, (aktivStege_?.snitt ?? 0) * (curSäljDagar + passKvar) - curTotalTB) / passKvar
+                    : 0;
+
+                  // 3. Drömscenario
+                  const drömVal      = parseFloat(drömSnitt) || 0;
+                  const drömTB       = curTotalTB + passKvar * drömVal;
+                  const drömTier     = [...stege].reverse().find(s => (drömTB/(curSäljDagar+passKvar||1)) >= s.snitt) ?? stege[0] ?? { procent: 0 };
+                  const drömProv     = drömTB * (drömTier.procent + kpiP) / 100;
+                  const drömBrutto   = projLön + drömProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const drömNetto    = drömBrutto * (1 - settings.skatt / 100);
+
+                  // 4. Månadsmax
+                  const maxTBPerPass = topTier.snitt;
+                  const maxTB        = curTotalTB + passKvar * maxTBPerPass;
+                  const maxProv      = maxTB * (topTier.procent + kpiP) / 100;
+                  const maxBrutto    = projLön + maxProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const maxNetto     = maxBrutto * (1 - settings.skatt / 100);
+
+                  function ProjCard({ title, emoji, brutto, netto, extra, color }) {
+                    return (
+                      <div style={{ background: NC, border: `1px solid ${color ?? N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+                        <div style={{ color: color ?? "#5577aa", fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
+                          {emoji} {title}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: extra ? 8 : 0 }}>
+                          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Brutto</div>
+                            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(brutto)}</div>
+                          </div>
+                          <div style={{ background: `${color ?? G}18`, borderRadius: 10, padding: "10px 12px", border: `1px solid ${color ?? G}44` }}>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Netto</div>
+                            <div style={{ color: color ?? G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(netto)}</div>
+                          </div>
+                        </div>
+                        {extra && <div style={{ color: "#5577aa", fontSize: 11, marginTop: 4 }}>{extra}</div>}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div>
+                      {/* Nuläge */}
+                      <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                         {[
-                          ["Säljdagar", curSäljDagar],
-                          ["Snitt TB/dag", Math.round(curSnitt).toLocaleString("sv-SE") + " kr"],
-                          ["Total TB", Math.round(curTotalTB).toLocaleString("sv-SE") + " kr"],
-                          ["Aktiv serie", (aktivStege_?.procent ?? 0) + "%"],
-                        ].map(([label, val]) => (
-                          <div key={label} style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
-                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>{label}</div>
-                            <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18, marginTop:4 }}>{val}</div>
+                          ["Snitt nu", `${Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag`],
+                          ["Serie", `${totalProcent}%`],
+                          ["Pass kvar", `${passKvar} st`],
+                        ].map(([l,v]) => (
+                          <div key={l}>
+                            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>{l}</div>
+                            <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{v}</div>
                           </div>
                         ))}
                       </div>
 
-                      {nästaStege_ ? (<>
-                        <div style={{ color:"#5577aa", fontSize:12, marginBottom:6 }}>Behöver {Math.round(neededPerPassNästa).toLocaleString("sv-SE")} kr/pass i snitt ({passKvar} pass kvar) för {nästaStege_.procent}%</div>
-                        <div style={{ height:10, background:ND, borderRadius:5, overflow:"hidden", marginBottom:8 }}>
-                          <div style={{ height:"100%", borderRadius:5, background:`linear-gradient(90deg,${G},#f5a623)`, width:`${Math.min(100,(curSnitt/nästaStege_.snitt)*100)}%` }} />
+                      {/* 1. Håller snittet */}
+                      <ProjCard
+                        title={`Håller du ${Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag`}
+                        emoji="📈"
+                        brutto={projBrutto}
+                        netto={projNetto}
+                        extra={`Proj. total TB: ${Math.round(projTB).toLocaleString("sv-SE")} kr · ${curSäljDagar + passKvar} säljdagar`}
+                        color={G}
+                      />
+
+                      {/* 2. Lägsta acceptabla */}
+                      <div style={{ background: NC, border: `1px solid #f5a62344`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+                        <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                          ⚠️ Minimum för att hålla {aktivStege_?.procent}%-serien
                         </div>
-                        <div style={{ display:"flex", justifyContent:"space-between" }}>
-                          <span style={{ color:"#5577aa", fontSize:11 }}>{Math.round(curSnitt).toLocaleString("sv-SE")}</span>
-                          <span style={{ color:G, fontSize:11, fontWeight:700 }}>{Math.round((curSnitt/nästaStege_.snitt)*100)}%</span>
-                          <span style={{ color:"#5577aa", fontSize:11 }}>{nästaStege_.snitt.toLocaleString("sv-SE")}</span>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <div style={{ color: "#5577aa", fontSize: 11 }}>Per resterande pass</div>
+                            <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28 }}>
+                              {Math.round(minTBPerPass).toLocaleString("sv-SE")} kr
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ color: "#5577aa", fontSize: 11 }}>Nuvarande snitt</div>
+                            <div style={{ color: curSnitt >= (aktivStege_?.snitt ?? 0) ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>
+                              {Math.round(curSnitt).toLocaleString("sv-SE")} kr
+                            </div>
+                          </div>
                         </div>
-                      </>) : (
-                        <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:10, padding:"14px", textAlign:"center" }}>
-                          <div style={{ color:G, fontWeight:700, fontSize:16 }}>🏆 Du är på toppnivå!</div>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}><span style={{ color:"#5577aa", fontSize:12 }}>Snitt: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span><span style={{ color:"#5577aa", fontSize:12 }}>Gräns: {(aktivStege_?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span></div>
+                        {minTBPerPass === 0 && passKvar > 0 && (
+                          <div style={{ color: G, fontSize: 12, marginTop: 6 }}>✅ Du är säkrad på denna serie oavsett resterande pass!</div>
+                        )}
+                      </div>
+
+                      {/* 3. Drömscenario */}
+                      <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+                        <div style={{ color: "#c8deff", fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                          🚀 Kör hårt — vad händer om du gör...
                         </div>
-                      )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: drömVal > 0 ? 12 : 0 }}>
+                          <input
+                            type="number" value={drömSnitt} step={1000} min={0}
+                            placeholder="TB per pass..."
+                            onChange={e => setDrömSnitt(e.target.value)}
+                            style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#c8deff", borderRadius: 10, padding: "10px 14px", fontSize: 18, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                          />
+                          <span style={{ color: "#5577aa", fontSize: 13 }}>kr/pass</span>
+                        </div>
+                        {drömVal > 0 && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+                              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Brutto</div>
+                              <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(drömBrutto)}</div>
+                            </div>
+                            <div style={{ background: `${G}18`, borderRadius: 10, padding: "10px 12px", border: `1px solid ${GD}44` }}>
+                              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Netto</div>
+                              <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(drömNetto)}</div>
+                            </div>
+                            <div style={{ gridColumn: "span 2", background: ND, borderRadius: 8, padding: "6px 10px", display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: "#5577aa", fontSize: 12 }}>Serie</span>
+                              <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}>{drömTier.procent + kpiP}%</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 4. Månadsmax */}
+                      <ProjCard
+                        title={`Månadsmax (${topTier.snitt.toLocaleString("sv-SE")} kr/pass)`}
+                        emoji="👑"
+                        brutto={maxBrutto}
+                        netto={maxNetto}
+                        extra={`${topTier.procent + kpiP}% provision · TB ${Math.round(maxTB).toLocaleString("sv-SE")} kr`}
+                        color="#f5a623"
+                      />
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* ── VAD OM ── */}
                 {sparkTab === "vadom" && (
