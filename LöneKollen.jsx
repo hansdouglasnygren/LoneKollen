@@ -117,6 +117,7 @@ export default function LöneKollen() {
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
   const [jobbläge, setJobbläge]       = useState("ledig");
+  const [swipeStartX, setSwipeStartX] = useState(null);
   const [dagsmål, setDagsmål]         = useState(() => { try { return parseFloat(localStorage.getItem("lk-dagsmål")) || 10000; } catch { return 10000; } });
   const [celebration, setCelebration] = useState(null); // null | {nivå: 1|2|3, day, tbProv}
   const [planeraOpen, setPlaneraOpen] = useState(false);
@@ -837,25 +838,67 @@ export default function LöneKollen() {
             const subTabs = [
               ["live", "⚡ Live"],
               ["mål",  "🎯 Mål"],
+              ["bästa","🌟 Bästa"],
               ["tempo","📊 Tempo"],
               ["vadom","💰 Vad om"],
               ["stats","🏆 Stats"],
               ["fakta","🧠 Fakta"],
             ];
+            const tabIndex = subTabs.findIndex(([k]) => k === sparkTab);
+
+            // Bästa dag-beräkningar
+            const säljPassar = days.filter(d => d.passTyp !== "annan");
+            const bästaTB    = [...säljPassar].sort((a,b) => (b.tb??0)-(a.tb??0))[0];
+            const bästaTjänster = mData.kpiMål?.length > 0
+              ? [...säljPassar].sort((a,b) => {
+                  const sumA = Object.values(a.tjänster??{}).reduce((s,v)=>s+v,0);
+                  const sumB = Object.values(b.tjänster??{}).reduce((s,v)=>s+v,0);
+                  return sumB - sumA;
+                })[0]
+              : null;
+            const bästaLön = [...days].sort((a,b) => {
+              const lönA = calcDayPay(a.dagTyp,a.startMin,a.endMin,settings.timlön) + (a.bonus??0) + (a.tb??0)*((summary.aktivStege?.procent??0)+(summary.kpiProcent??0))/100;
+              const lönB = calcDayPay(b.dagTyp,b.startMin,b.endMin,settings.timlön) + (b.bonus??0) + (b.tb??0)*((summary.aktivStege?.procent??0)+(summary.kpiProcent??0))/100;
+              return lönB - lönA;
+            })[0];
 
             return (
-              <div>
-                {/* Sub-tab bar */}
-                <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
-                  {subTabs.map(([key, label]) => (
-                    <button key={key} onClick={() => setSparkTab(key)} style={{
-                      flexShrink: 0, padding: "7px 12px", border: "none", borderRadius: 20,
-                      background: sparkTab === key ? "#f5a623" : NC,
-                      color: sparkTab === key ? "#001435" : "#5577aa",
-                      fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                      whiteSpace: "nowrap",
-                    }}>{label}</button>
-                  ))}
+              <div
+                onTouchStart={e => setSwipeStartX(e.touches[0].clientX)}
+                onTouchEnd={e => {
+                  if (swipeStartX === null) return;
+                  const diff = swipeStartX - e.changedTouches[0].clientX;
+                  if (Math.abs(diff) > 50) {
+                    const idx = subTabs.findIndex(([k]) => k === sparkTab);
+                    if (diff > 0 && idx < subTabs.length - 1) setSparkTab(subTabs[idx+1][0]);
+                    if (diff < 0 && idx > 0) setSparkTab(subTabs[idx-1][0]);
+                  }
+                  setSwipeStartX(null);
+                }}
+              >
+                {/* Sub-tab bar med sliding indicator */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6 }}>
+                    {subTabs.map(([key, label]) => (
+                      <button key={key} onClick={() => setSparkTab(key)} style={{
+                        flexShrink: 0, padding: "7px 12px", border: "none", borderRadius: 20,
+                        background: sparkTab === key ? "#f5a623" : NC,
+                        color: sparkTab === key ? "#001435" : "#5577aa",
+                        fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                        whiteSpace: "nowrap", transition: "background .15s, color .15s",
+                      }}>{label}</button>
+                    ))}
+                  </div>
+                  {/* Dots indicator */}
+                  <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 4 }}>
+                    {subTabs.map(([key]) => (
+                      <div key={key} style={{
+                        width: sparkTab === key ? 16 : 4, height: 4, borderRadius: 2,
+                        background: sparkTab === key ? "#f5a623" : "#334",
+                        transition: "width .2s, background .2s",
+                      }} />
+                    ))}
+                  </div>
                 </div>
 
                 {/* ── LIVE ── */}
@@ -1183,6 +1226,90 @@ export default function LöneKollen() {
                   </div>
                 )}
 
+                {/* ── BÄSTA DAG ── */}
+                {sparkTab === "bästa" && (
+                  <div>
+                    {/* Bästa lönedagen */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>💰 Bästa lönedagen</div>
+                      {bästaLön ? (() => {
+                        const lön = calcDayPay(bästaLön.dagTyp, bästaLön.startMin, bästaLön.endMin, settings.timlön);
+                        const prov = (bästaLön.tb??0) * ((summary.aktivStege?.procent??0)+(summary.kpiProcent??0))/100;
+                        const tot = lön + prov + (bästaLön.bonus??0);
+                        return (<>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                              <span style={{ fontSize:22 }}>{DAG_META[bästaLön.dagTyp]?.emoji}</span>
+                              <div>
+                                <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaLön.dagTyp]?.label}{bästaLön.datum ? ` · ${bästaLön.datum.slice(5).replace("-","/")}` : ""}</div>
+                                <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bästaLön.startMin)} – {minToHHMM(bästaLön.endMin)}</div>
+                              </div>
+                            </div>
+                            <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:24 }}>{fmt(tot)}</div>
+                          </div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+                            {[["Timlön", fmt(lön)], ["Provision", fmt(prov)], ...(bästaLön.bonus > 0 ? [["Bonus", fmt(bästaLön.bonus)]] : [])].map(([l,v]) => (
+                              <div key={l} style={{ background:ND, borderRadius:8, padding:"6px 8px" }}>
+                                <div style={{ color:"#5577aa", fontSize:9, textTransform:"uppercase", letterSpacing:1 }}>{l}</div>
+                                <div style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:13 }}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </>);
+                      })() : <div style={{ color:"#4466aa", textAlign:"center", padding:"12px 0" }}>Inga pass registrerade</div>}
+                    </div>
+
+                    {/* Högst TB */}
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
+                      <div style={{ color:G, fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>📊 Högst TB</div>
+                      {bästaTB ? (
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontSize:20 }}>{DAG_META[bästaTB.dagTyp]?.emoji}</span>
+                            <div>
+                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTB.dagTyp]?.label}{bästaTB.datum ? ` · ${bästaTB.datum.slice(5).replace("-","/")}` : ""}</div>
+                              <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bästaTB.startMin)} – {minToHHMM(bästaTB.endMin)}</div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:26 }}>{Math.round(bästaTB.tb??0).toLocaleString("sv-SE")} kr</div>
+                            <div style={{ color:"#5577aa", fontSize:11 }}>TB</div>
+                          </div>
+                        </div>
+                      ) : <div style={{ color:"#4466aa", textAlign:"center", padding:"12px 0" }}>Inga säljpass registrerade</div>}
+                    </div>
+
+                    {/* Flest tjänster */}
+                    {bästaTjänster && (
+                      <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
+                        <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🎯 Flest tjänster</div>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontSize:20 }}>{DAG_META[bästaTjänster.dagTyp]?.emoji}</span>
+                            <div>
+                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTjänster.dagTyp]?.label}{bästaTjänster.datum ? ` · ${bästaTjänster.datum.slice(5).replace("-","/")}` : ""}</div>
+                            </div>
+                          </div>
+                          <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:24 }}>
+                            {Object.values(bästaTjänster.tjänster??{}).reduce((s,v)=>s+v,0)} st
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                          {Object.entries(bästaTjänster.tjänster??{}).filter(([,v])=>v>0).map(([id,v]) => {
+                            const kpi = (mData.kpiMål??[]).find(k=>k.id===id);
+                            return kpi ? (
+                              <div key={id} style={{ background:ND, borderRadius:8, padding:"5px 10px", display:"flex", gap:6, alignItems:"center" }}>
+                                <span style={{ color:"#5577aa", fontSize:12 }}>{kpi.namn}</span>
+                                <span style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}>{v}</span>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ── TEMPO ── */}
                 {sparkTab === "tempo" && (
                   <div>
@@ -1431,10 +1558,12 @@ export default function LöneKollen() {
             saveDay(day);
             setAddOpen(false);
             setEditId(null);
-            // Beräkna firande-nivå
+            // Beräkna firande-nivå (endast juni-aug 2026)
+            const now = new Date();
+            const aktiveraFirande = now.getFullYear() === 2026 && now.getMonth() >= 5 && now.getMonth() <= 7;
             const topSnitt = monthStege.length > 0 ? Math.max(...monthStege.map(s => s.snitt)) : 0;
             const tb = day.tb ?? 0;
-            if (topSnitt > 0 && day.passTyp === "sälj") {
+            if (aktiveraFirande && topSnitt > 0 && day.passTyp === "sälj") {
               const nivå = tb >= topSnitt * 2 ? 3 : tb >= topSnitt ? 2 : 1;
               setCelebration({ nivå, day, topSnitt });
             }
