@@ -279,6 +279,7 @@ export default function LöneKollen() {
         body { background: ${ND}; }
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+        .spark-tabs::-webkit-scrollbar { display: none; }
         input:focus { outline: none; }
         button:active { opacity: 0.8; }
         @keyframes slideUp {
@@ -878,7 +879,7 @@ export default function LöneKollen() {
               >
                 {/* Sub-tab bar med sliding indicator */}
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6 }}>
+                  <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, scrollbarWidth: "none", msOverflowStyle: "none" }}>
                     {subTabs.map(([key, label]) => (
                       <button key={key} onClick={() => setSparkTab(key)} style={{
                         flexShrink: 0, padding: "7px 12px", border: "none", borderRadius: 20,
