@@ -690,7 +690,7 @@ export default function LöneKollen() {
               </div>
             )}
 
-            {[...days].sort((a, b) => a.startMin - b.startMin).map(day => {
+            {[...days].sort((a, b) => (b.registrerad ?? 0) - (a.registrerad ?? 0)).map(day => {
               const meta     = DAG_META[day.dagTyp];
               const breakMin = getBreakMin(day.dagTyp);
               const pay      = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
@@ -709,7 +709,7 @@ export default function LöneKollen() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 20 }}>{meta.emoji}</span>
                       <div>
-                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}</div>
+                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 12 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
                         <div style={{ color: "#5577aa", fontSize: 12 }}>
                           {minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} &nbsp;·&nbsp; {h.toFixed(2).replace(".", ",")}h
                           {breakMin > 0 && <span style={{ color: "#445" }}> &nbsp;·&nbsp; {breakMin}min rast</span>}
@@ -1632,6 +1632,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [skott, setSkott]         = useState(initialDay?.skott ?? "");
   const [tjänster, setTjänster]   = useState(initialDay?.tjänster ?? {});
   const [bonus, setBonus]         = useState(initialDay?.bonus ?? 0);
+  const [datum, setDatum]         = useState(initialDay?.datum ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
 
   // ── Hel-månad state ──────────────────────────────────────────────────────
@@ -1832,6 +1833,23 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
         </div>
 
+        {/* Datum (valfritt) */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            Datum <span style={{ color: "#334", fontWeight: 400 }}>(valfritt)</span>
+          </div>
+          <input
+            type="date"
+            value={datum}
+            onChange={e => setDatum(e.target.value)}
+            style={{
+              width: "100%", background: ND, border: `1px solid ${N}`,
+              color: datum ? "#fff" : "#334", borderRadius: 10, padding: "10px 14px",
+              fontSize: 15, fontFamily: "Outfit, sans-serif", colorScheme: "dark",
+            }}
+          />
+        </div>
+
         {/* Passtyp */}
         <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Passtyp</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -1961,6 +1979,8 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           skott: passTyp === "annan" ? (parseFloat(skott) || 0) : 0,
           tjänster: passTyp === "sälj" ? tjänster : {},
           bonus: bonus || 0,
+          datum: datum || "",
+          registrerad: initialDay?.registrerad ?? Date.now(),
         })} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
