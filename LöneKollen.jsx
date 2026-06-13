@@ -690,7 +690,12 @@ export default function LöneKollen() {
               </div>
             )}
 
-            {[...days].sort((a, b) => (b.registrerad ?? 0) - (a.registrerad ?? 0)).map(day => {
+            {[...days].map((d, i) => ({ ...d, _idx: i }))
+              .sort((a, b) => {
+                const ar = a.registrerad ?? a._idx;
+                const br = b.registrerad ?? b._idx;
+                return br - ar;
+              }).map(day => {
               const meta     = DAG_META[day.dagTyp];
               const breakMin = getBreakMin(day.dagTyp);
               const pay      = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
