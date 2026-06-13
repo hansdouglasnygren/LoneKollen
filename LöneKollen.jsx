@@ -118,6 +118,7 @@ export default function LöneKollen() {
   const [sparkTab, setSparkTab]       = useState("live");
   const [jobbläge, setJobbläge]       = useState("ledig");
   const [dagsmål, setDagsmål]         = useState(() => { try { return parseFloat(localStorage.getItem("lk-dagsmål")) || 10000; } catch { return 10000; } });
+  const [celebration, setCelebration] = useState(null); // null | {nivå: 1|2|3, day, tbProv}
   const [planeraOpen, setPlaneraOpen] = useState(false);
   useEffect(() => { try { localStorage.setItem("lk-dagsmål", dagsmål); } catch {} }, [dagsmål]);
   const [vadomTB, setVadomTB]         = useState("");
@@ -696,13 +697,16 @@ export default function LöneKollen() {
                 const br = b.registrerad ?? b._idx;
                 return br - ar;
               }).map(day => {
-              const meta     = DAG_META[day.dagTyp];
-              const breakMin = getBreakMin(day.dagTyp);
-              const pay      = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
-              const prov     = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
-              const bonus    = day.bonus ?? 0;
-              const totalBrutto = pay + prov + bonus;
-              const h        = (day.endMin - day.startMin) / 60;
+              const meta      = DAG_META[day.dagTyp];
+              const breakMin  = getBreakMin(day.dagTyp);
+              const pay       = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+              const prov      = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
+              const bonus     = day.bonus ?? 0;
+              const tbProv    = day.passTyp === "sälj"
+                ? (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100
+                : 0;
+              const totalBrutto = pay + prov + bonus + tbProv;
+              const h         = (day.endMin - day.startMin) / 60;
 
               return (
                 <div key={day.id} style={{
@@ -737,7 +741,11 @@ export default function LöneKollen() {
                       border: `1px solid ${N}`, borderRadius: 8, color: "#6688bb",
                       cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif",
                     }}>Redigera</button>
-                    <button onClick={() => deleteDay(day.id)} style={{
+                    <button onClick={() => {
+                      if (window.confirm(`Ta bort ${meta.label}-passet (${minToHHMM(day.startMin)}–${minToHHMM(day.endMin)})?`)) {
+                        deleteDay(day.id);
+                      }
+                    }} style={{
                       padding: "7px 14px", background: "transparent",
                       border: "1px solid #440000", borderRadius: 8, color: "#884444",
                       cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif",
@@ -1379,6 +1387,16 @@ export default function LöneKollen() {
       </div>
 
       {/* ════════════════ LÄGG TILL/REDIGERA-MODAL ════════════════ */}
+      {celebration && (
+        <CelebrationModal
+          celebration={celebration}
+          summary={summary}
+          settings={settings}
+          monthStege={monthStege}
+          onClose={() => setCelebration(null)}
+        />
+      )}
+
       {planeraOpen && (
         <PlaneraModal
           initialPlan={mData.planerade ?? {}}
@@ -1409,7 +1427,18 @@ export default function LöneKollen() {
           kpiMål={mData.kpiMål ?? []}
           bonusAktiv={mData.bonusAktiv ?? false}
           initialDay={editId ? days.find(d => d.id === editId) : null}
-          onSave={day => { saveDay(day); setAddOpen(false); setEditId(null); }}
+          onSave={day => {
+            saveDay(day);
+            setAddOpen(false);
+            setEditId(null);
+            // Beräkna firande-nivå
+            const topSnitt = monthStege.length > 0 ? Math.max(...monthStege.map(s => s.snitt)) : 0;
+            const tb = day.tb ?? 0;
+            if (topSnitt > 0 && day.passTyp === "sälj") {
+              const nivå = tb >= topSnitt * 2 ? 3 : tb >= topSnitt ? 2 : 1;
+              setCelebration({ nivå, day, topSnitt });
+            }
+          }}
           onSaveMonth={data => {
             mutateMonth(cur => ({
               ...cur,
@@ -1436,6 +1465,120 @@ export default function LöneKollen() {
         />
       )}
     </>
+  );
+}
+
+// ─── Celebration Modal ────────────────────────────────────────────────────
+function CelebrationModal({ celebration, summary, settings, monthStege, onClose }) {
+  const { nivå, day, topSnitt } = celebration;
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setFrame(f => f + 1), 100);
+    return () => clearInterval(id);
+  }, []);
+
+  const tbProv   = (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100;
+  const pay      = 0; // timlön handled separately
+  const bonus    = day.bonus ?? 0;
+  const tillgodo = Math.round(summary.totalTB - (summary.aktivStege?.snitt ?? 0) * summary.säljDagar);
+  const överskott = tillgodo >= 0;
+
+  // Emoji-konfetti för nivå 2+
+  const emojis = ["💰","🔥","⚡","🏆","💸","✨","🎊","💥","🌟","👑"];
+  const danielEmojis = ["🍺","🌈","⚡","💥","🎆","🏆","👑","💰","🔥","🎊","💸","✨"];
+
+  const particles = Array.from({ length: nivå === 3 ? 20 : 12 }, (_, i) => ({
+    emoji: (nivå === 3 ? danielEmojis : emojis)[i % (nivå === 3 ? danielEmojis.length : emojis.length)],
+    x: Math.sin(i * 137.5 + frame * 0.3) * 45 + 50,
+    y: ((frame * 2 + i * 30) % 120) - 10,
+    size: 16 + (i % 3) * 8,
+  }));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end" }}>
+      {/* Bakgrund */}
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: nivå === 3 ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.75)" }} />
+
+      {/* Emoji-partiklar */}
+      {nivå >= 2 && particles.map((p, i) => (
+        <div key={i} style={{
+          position: "absolute", left: `${p.x}%`, top: `${p.y}%`,
+          fontSize: p.size, pointerEvents: "none", transition: "top 0.1s linear",
+          zIndex: 201,
+        }}>{p.emoji}</div>
+      ))}
+
+      {/* Daniel-bild för nivå 3 */}
+      {nivå === 3 && (
+        <div style={{
+          position: "absolute", right: 0, bottom: "38%",
+          width: "55%", zIndex: 202,
+          animation: "slideUp .4s ease",
+        }}>
+          <img src="/daniel.png" alt="Daniel" style={{ width: "100%", borderRadius: "16px 0 0 16px", objectFit: "cover", maxHeight: 300, objectPosition: "top" }} />
+        </div>
+      )}
+
+      {/* Popup-kort */}
+      <div style={{
+        position: "relative", width: "100%", zIndex: 203,
+        background: nivå === 3 ? "#001435" : nivå === 2 ? "#001435" : "#001435",
+        borderRadius: "24px 24px 0 0",
+        borderTop: `3px solid ${nivå === 3 ? "#f5a623" : nivå === 2 ? G : "#5577aa"}`,
+        padding: "20px 18px 40px",
+        animation: "slideUp .3s ease",
+      }}>
+        {nivå === 3 ? (<>
+          <div style={{ fontSize: 36, marginBottom: 8, textAlign: "center" }}>🍺👑🍺</div>
+          <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 4 }}>OKTOBERFEST-NIVÅ!</div>
+          <div style={{ color: "#fff", fontSize: 14, textAlign: "center", marginBottom: 16 }}>Dubbla budgeten! Daniel hade velat se det här! 🔥</div>
+        </>) : nivå === 2 ? (<>
+          <div style={{ fontSize: 32, marginBottom: 8, textAlign: "center" }}>🔥🏆🔥</div>
+          <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 26, textAlign: "center", marginBottom: 4 }}>SUPERPASS!</div>
+          <div style={{ color: "#fff", fontSize: 14, textAlign: "center", marginBottom: 16 }}>Över budgeten — det är så det ska se ut!</div>
+        </>) : (<>
+          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>💪</div>
+          <div style={{ color: "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, textAlign: "center", marginBottom: 4 }}>Du är fortfarande med i matchen!</div>
+          <div style={{ color: "#5577aa", fontSize: 13, textAlign: "center", marginBottom: 16 }}>
+            {topSnitt > 0 ? `${(topSnitt - (day.tb ?? 0)).toLocaleString("sv-SE")} kr under budgeten idag` : ""}
+          </div>
+        </>)}
+
+        {/* Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>TB detta pass</div>
+            <div style={{ color: nivå >= 2 ? G : "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{Math.round(day.tb ?? 0).toLocaleString("sv-SE")} kr</div>
+          </div>
+          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Provisionsbidrag</div>
+            <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{fmt(tbProv)}</div>
+          </div>
+        </div>
+
+        {/* Månadsläge */}
+        <div style={{ background: överskott ? `${G}15` : "#1a0000", border: `1px solid ${överskott ? GD : "#aa2222"}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+          <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 4 }}>TB tillgodo på guldnivån denna månad</div>
+          <div style={{ color: överskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+            {överskott ? "+" : ""}{tillgodo.toLocaleString("sv-SE")} kr
+          </div>
+          {!överskott && (
+            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 4 }}>
+              Snitt behöver höjas med {Math.round((summary.aktivStege?.snitt ?? 0) - summary.snittTB).toLocaleString("sv-SE")} kr/dag
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose} style={{
+          width: "100%", padding: 14, background: nivå === 3 ? "#f5a623" : G,
+          border: "none", borderRadius: 14, color: "#001435",
+          fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        }}>
+          {nivå === 3 ? "🍺 SKÅL!" : nivå === 2 ? "🔥 Fortsätt så!" : "💪 Nästa pass blir bättre!"}
+        </button>
+      </div>
+    </div>
   );
 }
 
