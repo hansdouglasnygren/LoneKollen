@@ -696,6 +696,11 @@ export default function LöneKollen() {
 
             {[...days].map((d, i) => ({ ...d, _idx: i }))
               .sort((a, b) => {
+                // Datum satt → sortera på datum (nyaste först)
+                if (a.datum && b.datum) return b.datum.localeCompare(a.datum);
+                if (a.datum && !b.datum) return -1; // datum alltid före odaterade
+                if (!a.datum && b.datum) return 1;
+                // Inget datum → registreringsordning (senaste först)
                 const ar = a.registrerad ?? a._idx;
                 const br = b.registrerad ?? b._idx;
                 return br - ar;
@@ -2303,10 +2308,10 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
         </div>
 
-        {/* Datum (valfritt) */}
+        {/* Datum (obligatoriskt) */}
         <div style={{ marginBottom: 20 }}>
-          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-            Datum <span style={{ color: "#334", fontWeight: 400 }}>(valfritt)</span>
+          <div style={{ color: datum ? "#5577aa" : "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            Datum <span style={{ color: datum ? "#334" : "#f5a623" }}>*</span>
           </div>
           <input
             type="date"
@@ -2324,11 +2329,13 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
               }
             }}
             style={{
-              width: "100%", background: ND, border: `1px solid ${N}`,
-              color: datum ? "#fff" : "#334", borderRadius: 10, padding: "10px 14px",
+              width: "100%", background: ND,
+              border: `1px solid ${datum ? N : "#f5a62366"}`,
+              color: datum ? "#fff" : "#5577aa", borderRadius: 10, padding: "10px 14px",
               fontSize: 15, fontFamily: "Outfit, sans-serif", colorScheme: "dark",
             }}
           />
+          {!datum && <div style={{ color: "#f5a623", fontSize: 11, marginTop: 4 }}>Välj datum för att spara passet</div>}
         </div>
 
         {/* Passtyp */}
@@ -2462,10 +2469,11 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           bonus: bonus || 0,
           datum: datum || "",
           registrerad: initialDay?.registrerad ?? Date.now(),
-        })} style={{
-          width: "100%", padding: 16, background: G, border: "none",
-          borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
-          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        })} disabled={!datum} style={{
+          width: "100%", padding: 16, background: datum ? G : "#334", border: "none",
+          borderRadius: 14, color: datum ? "#001435" : "#556", fontWeight: 700, fontSize: 17,
+          cursor: datum ? "pointer" : "not-allowed", fontFamily: "Outfit, sans-serif",
+          opacity: datum ? 1 : 0.6,
         }}>
           {initialDay ? "Spara ändringar" : "Lägg till pass"}
         </button>
