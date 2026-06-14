@@ -842,7 +842,6 @@ export default function LöneKollen() {
               ["mål",  "🎯 Mål"],
               ["bästa","🌟 Bästa"],
               ["tempo","📊 Tempo"],
-              ["vadom","💰 Vad om"],
               ["stats","🏆 Stats"],
               ["fakta","🧠 Fakta"],
             ];
@@ -1465,39 +1464,6 @@ export default function LöneKollen() {
                   );
                 })()}
 
-                {/* ── VAD OM ── */}
-                {sparkTab === "vadom" && (
-                  <div>
-                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
-                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>💰 Simulera ett pass</div>
-                      <div style={{ color:"#5577aa", fontSize:12, marginBottom:12 }}>Vad händer med din provision om du gör X kr i TB?</div>
-                      <input type="number" value={vadomTB} step={1000} min={0} placeholder="Ange TB för passet..."
-                        onChange={e => setVadomTB(e.target.value)}
-                        style={{ width:"100%", background:ND, border:`1px solid ${N}`, color:G, borderRadius:10, padding:"12px 16px", fontSize:20, fontFamily:"Rajdhani, sans-serif", fontWeight:700, marginBottom: vadomVal > 0 ? 14 : 0 }}
-                      />
-                      {vadomVal > 0 && (<>
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
-                          <div style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
-                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>Nytt snitt</div>
-                            <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{Math.round(vadomSnitt).toLocaleString("sv-SE")} kr</div>
-                          </div>
-                          <div style={{ background:ND, borderRadius:10, padding:"12px 14px" }}>
-                            <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1 }}>Serie</div>
-                            <div style={{ color: tierChanged ? "#f5a623" : G, fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:18 }}>{vadomTier.procent}% {tierChanged ? "🆙" : ""}</div>
-                          </div>
-                        </div>
-                        <div style={{ background: vadomDelta > 0 ? `${G}15` : "#2a0808", border:`1px solid ${vadomDelta > 0 ? GD : "#aa2222"}`, borderRadius:12, padding:"14px 16px", textAlign:"center" }}>
-                          <div style={{ color:"#5577aa", fontSize:11, marginBottom:4 }}>Provisionspåverkan</div>
-                          <div style={{ color: vadomDelta >= 0 ? G : "#ff6666", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:30 }}>
-                            {vadomDelta >= 0 ? "+" : ""}{fmt(vadomDelta)}
-                          </div>
-                          {tierChanged && <div style={{ color:"#f5a623", fontSize:12, marginTop:4 }}>🆙 Du byter till {vadomTier.procent}%-serien!</div>}
-                        </div>
-                      </>)}
-                    </div>
-                  </div>
-                )}
-
                 {/* ── STATS ── */}
                 {sparkTab === "stats" && (
                   <div>
@@ -1558,25 +1524,39 @@ export default function LöneKollen() {
                 )}
 
                 {/* ── FAKTA ── */}
-                {sparkTab === "fakta" && (
-                  <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
-                    <div style={{ color:G, fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🧠 Snabbfakta</div>
-                    {[
-                      ["Per minut (netto)", `${krPerMinNetto.toFixed(2)} kr`],
-                      ["Per timme (netto)", fmt(krPerMinNetto*60)],
-                      ["Per timme (brutto)", fmt(krPerMin*60)],
-                      ["En kaffe (32 kr)", `${Math.ceil(32/krPerMinNetto)} min jobb`],
-                      ["En lunch (120 kr)", `${Math.ceil(120/krPerMinNetto)} min jobb`],
-                      ["Hela passet netto", fmt(fullNetto)],
-                      ["Hela passet brutto", fmt(fullPay)],
-                    ].map(([label, val]) => (
-                      <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${N}` }}>
-                        <span style={{ color:"#5577aa", fontSize:13 }}>{label}</span>
-                        <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:14 }}>{val}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {sparkTab === "fakta" && (() => {
+                  // Månadsbaserade beräkningar
+                  const totTimmar = days.reduce((s, d) => {
+                    const brk = getBreakMin(d.dagTyp);
+                    return s + ((d.endMin - d.startMin) - brk) / 60;
+                  }, 0);
+                  const månBrutto     = summary?.brutto ?? 0;
+                  const månNetto      = summary?.netto ?? 0;
+                  const krPerTimBrutto = totTimmar > 0 ? månBrutto / totTimmar : 0;
+                  const krPerTimNetto  = totTimmar > 0 ? månNetto / totTimmar : 0;
+                  const krPerMinNetto_ = krPerTimNetto / 60;
+
+                  return (
+                    <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
+                      <div style={{ color:G, fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:4 }}>🧠 Snabbfakta</div>
+                      <div style={{ color:"#5577aa", fontSize:11, marginBottom:12 }}>Baserat på månadsdata ink. provision</div>
+                      {[
+                        ["Totalt jobbade timmar", `${totTimmar.toFixed(1)} h`],
+                        ["Per timme (brutto)", fmt(krPerTimBrutto)],
+                        ["Per timme (netto)", fmt(krPerTimNetto)],
+                        ["Per minut (netto)", `${krPerMinNetto_.toFixed(2)} kr`],
+                        ["En kaffe (32 kr)", krPerMinNetto_ > 0 ? `${Math.ceil(32/krPerMinNetto_)} min jobb` : "—"],
+                        ["En lunch (120 kr)", krPerMinNetto_ > 0 ? `${Math.ceil(120/krPerMinNetto_)} min jobb` : "—"],
+                        ["Genomsnitt per pass", days.length > 0 ? fmt(månBrutto / days.length) : "—"],
+                      ].map(([label, val], i, arr) => (
+                        <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom: i < arr.length-1 ? `1px solid ${N}` : "none" }}>
+                          <span style={{ color:"#5577aa", fontSize:13 }}>{label}</span>
+                          <span style={{ color:"#c8deff", fontFamily:"Rajdhani, sans-serif", fontWeight:700, fontSize:14 }}>{val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
