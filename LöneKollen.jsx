@@ -2314,8 +2314,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             Datum <span style={{ color: datum ? "#334" : "#f5a623" }}>*</span>
           </div>
           <input
-            type="date"
-            value={datum}
+            type="date" lang="sv" value={datum}
             onChange={e => {
               const val = e.target.value;
               setDatum(val);
@@ -2335,7 +2334,11 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
               fontSize: 15, fontFamily: "Outfit, sans-serif", colorScheme: "dark",
             }}
           />
-          {!datum && <div style={{ color: "#f5a623", fontSize: 11, marginTop: 4 }}>Välj datum för att spara passet</div>}
+          {!datum && <div style={{ color: "#f5a623", fontSize: 11, marginTop: 6 }}>Välj datum för att spara passet</div>}
+          {datum && <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6 }}>
+            {(() => { const p = datum.split("-"); return `${parseInt(p[2])}/${parseInt(p[1])}/${p[0]}`; })()}
+            {" · "}{(() => { const t = getDagTypFromDate(datum); return t ? {vardag:"Vardag",lördag:"Lördag",söndag:"Söndag",röd:"Röd dag"}[t] : ""; })()}
+          </div>}
         </div>
 
         {/* Passtyp */}
