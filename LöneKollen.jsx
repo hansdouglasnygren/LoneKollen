@@ -114,7 +114,6 @@ export default function LöneKollen() {
   const [stegeOpen, setStegeOpen]         = useState(false);
   const [bruttoOpen, setBruttoOpen]       = useState(false);
   const [kodModalOpen, setKodModalOpen]   = useState(false);
-  const [kodModalOpen, setKodModalOpen]   = useState(false);
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -1655,21 +1654,6 @@ export default function LöneKollen() {
         />
       )}
 
-      {kodModalOpen && (
-        <KodModal
-          onImport={data => {
-            mutateMonth(cur => ({
-              ...cur,
-              tbStege: data.tbStege ?? cur.tbStege,
-              kpiMål: data.kpiMål ?? cur.kpiMål,
-              bonusAktiv: data.bonusAktiv ?? cur.bonusAktiv,
-            }));
-            setKodModalOpen(false);
-          }}
-          onCancel={() => setKodModalOpen(false)}
-        />
-      )}
-
       {planeraOpen && (
         <PlaneraModal
           initialPlan={Array.isArray(mData.planerade) ? mData.planerade : []}
@@ -2353,7 +2337,6 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
   );
 }
 
-// ─── Dag-formulär ─────────────────────────────────────────────────────────
 // ─── Svenska helgdagar ────────────────────────────────────────────────────
 function easterDate(year) {
   const a = year % 19, b = Math.floor(year / 100), c = year % 100;
