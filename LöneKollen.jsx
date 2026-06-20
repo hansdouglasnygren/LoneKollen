@@ -113,6 +113,8 @@ export default function LöneKollen() {
   const [editId, setEditId]     = useState(null);
   const [stegeOpen, setStegeOpen]         = useState(false);
   const [bruttoOpen, setBruttoOpen]       = useState(false);
+  const [kodModalOpen, setKodModalOpen]   = useState(false);
+  const [kodModalOpen, setKodModalOpen]   = useState(false);
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -148,10 +150,13 @@ export default function LöneKollen() {
   const monthStege = mData.tbStege ?? settings.tbStege ?? [];
 
   // Auto-beräkna pass kvar från planerade
-  const planerade    = mData.planerade ?? {};
-  const planeradeTotal = (planerade.vardag ?? 0) + (planerade.lördag ?? 0) + (planerade.söndag ?? 0) + (planerade.röd ?? 0);
-  const registrerade = days.filter(d => d.passTyp !== "annan").length;
-  const passKvar     = planeradeTotal > 0 ? Math.max(0, planeradeTotal - registrerade) : 5;
+  const planerade      = mData.planerade ?? {};
+  const planeradeArray = Array.isArray(planerade) ? planerade : []; // ny format
+  const planeradeTotal = Array.isArray(planerade)
+    ? planerade.length
+    : (planerade.vardag ?? 0) + (planerade.lördag ?? 0) + (planerade.söndag ?? 0) + (planerade.röd ?? 0);
+  const registrerade   = days.filter(d => d.passTyp !== "annan").length;
+  const passKvar       = planeradeTotal > 0 ? Math.max(0, planeradeTotal - registrerade) : 5;
 
   function mutateMonth(fn) {
     setMonths(prev => {
@@ -358,17 +363,30 @@ export default function LöneKollen() {
                   <div style={{ color: "#f5a623", fontWeight: 700, fontSize: 14 }}>⚠️ Ingen provisionsstege satt</div>
                   <div style={{ color: "#5577aa", fontSize: 12, marginTop: 3 }}>Sätt månadens stege för korrekt provisionsberäkning</div>
                 </div>
-                <button onClick={() => setStegeOpen(true)} style={{
-                  background: "#f5a623", border: "none", borderRadius: 10,
-                  color: "#001435", fontWeight: 700, fontSize: 13,
-                  padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
-                  fontFamily: "Outfit, sans-serif",
-                }}>Sätt stege</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setKodModalOpen(true)} style={{
+                    background: "transparent", border: "1px solid #f5a62355",
+                    borderRadius: 10, color: "#f5a623", fontWeight: 600, fontSize: 13,
+                    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
+                    fontFamily: "Outfit, sans-serif",
+                  }}>📥 Ange kod</button>
+                  <button onClick={() => setStegeOpen(true)} style={{
+                    background: "#f5a623", border: "none", borderRadius: 10,
+                    color: "#001435", fontWeight: 700, fontSize: 13,
+                    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
+                    fontFamily: "Outfit, sans-serif",
+                  }}>Sätt stege</button>
+                </div>
               </div>
             )}
 
             {mData.tbStege && (
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setKodModalOpen(true)} style={{
+                  background: "transparent", border: `1px solid ${N}`,
+                  borderRadius: 8, color: "#5577aa", fontSize: 12,
+                  padding: "5px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                }}>📥 Ange kod</button>
                 <button onClick={() => setStegeOpen(true)} style={{
                   background: "transparent", border: `1px solid ${N}`,
                   borderRadius: 8, color: "#5577aa", fontSize: 12,
@@ -462,9 +480,9 @@ export default function LöneKollen() {
                 ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
               ].filter(([,v]) => v > 0) : [
                 ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
-                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           planerade.vardag ?? null],
-                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           planerade.lördag ?? null],
-                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           planerade.söndag ?? null],
+                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
+                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
+                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
                 ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
               ]).map(([label, val, plan]) => (
                 <div key={label} style={{
@@ -1625,9 +1643,38 @@ export default function LöneKollen() {
         />
       )}
 
+      {kodModalOpen && (
+        <KodModal
+          onApply={(stege, kpiMål, bonusAktiv) => {
+            saveMonthStege(stege);
+            saveMonthKPI(kpiMål);
+            mutateMonth(cur => ({ ...cur, bonusAktiv }));
+            setKodModalOpen(false);
+          }}
+          onClose={() => setKodModalOpen(false)}
+        />
+      )}
+
+      {kodModalOpen && (
+        <KodModal
+          onImport={data => {
+            mutateMonth(cur => ({
+              ...cur,
+              tbStege: data.tbStege ?? cur.tbStege,
+              kpiMål: data.kpiMål ?? cur.kpiMål,
+              bonusAktiv: data.bonusAktiv ?? cur.bonusAktiv,
+            }));
+            setKodModalOpen(false);
+          }}
+          onCancel={() => setKodModalOpen(false)}
+        />
+      )}
+
       {planeraOpen && (
         <PlaneraModal
-          initialPlan={mData.planerade ?? {}}
+          initialPlan={Array.isArray(mData.planerade) ? mData.planerade : []}
+          month={month}
+          settings={settings}
           onSave={p => { savePlanerade(p); setPlaneraOpen(false); }}
           onCancel={() => setPlaneraOpen(false)}
         />
@@ -1696,6 +1743,33 @@ export default function LöneKollen() {
       )}
     </>
   );
+}
+
+function encodeProvision(stege, kpiMål, bonusAktiv) {
+  try {
+    const s = stege.map(x => `${x.snitt}:${x.procent}`).join(',');
+    const k = (kpiMål ?? []).filter(x => x.aktiv !== false)
+      .map(x => `${encodeURIComponent(x.namn)}:${x.mål}:${x.procent}`).join('|');
+    const raw = `${s};${k};${bonusAktiv ? 1 : 0}`;
+    return btoa(unescape(encodeURIComponent(raw)));
+  } catch { return ""; }
+}
+
+function decodeProvision(code) {
+  try {
+    const raw = decodeURIComponent(escape(atob(code.trim())));
+    const [sPart, kPart, bPart] = raw.split(';');
+    const stege = sPart.split(',').map(x => {
+      const [snitt, procent] = x.split(':').map(Number);
+      return { snitt, procent };
+    }).filter(s => !isNaN(s.snitt));
+    const kpiMål = kPart ? kPart.split('|').filter(Boolean).map((x, i) => {
+      const [namn, mål, procent] = x.split(':');
+      return { id: `kpi-import-${i}`, namn: decodeURIComponent(namn), mål: Number(mål), procent: Number(procent), aktiv: true };
+    }) : [];
+    const bonusAktiv = bPart === '1';
+    return { stege, kpiMål, bonusAktiv };
+  } catch { return null; }
 }
 
 // ─── Celebration Modal ────────────────────────────────────────────────────
@@ -1852,67 +1926,281 @@ function CelebrationModal({ celebration, summary, settings, monthStege, onClose 
   );
 }
 
-// ─── Planera-modal ────────────────────────────────────────────────────────
-function PlaneraModal({ initialPlan, onSave, onCancel }) {
-  const [plan, setPlan] = useState({
-    vardag: initialPlan.vardag ?? 0,
-    lördag: initialPlan.lördag ?? 0,
-    söndag: initialPlan.söndag ?? 0,
-    röd:    initialPlan.röd    ?? 0,
-  });
+// ─── Kod-modal ────────────────────────────────────────────────────────────
+function KodModal({ onApply, onClose }) {
+  const [kod, setKod] = useState("");
+  const [fel, setFel] = useState("");
+  const [preview, setPreview] = useState(null);
 
-  const total = plan.vardag + plan.lördag + plan.söndag + plan.röd;
-
-  function Step({ dagTyp, label, emoji }) {
-    const val = plan[dagTyp] ?? 0;
-    return (
-      <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{emoji} {label}</div>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <button onClick={() => setPlan(p => ({ ...p, [dagTyp]: Math.max(0, (p[dagTyp] ?? 0) - 1) }))}
-            style={{ width: 38, height: 38, borderRadius: "10px 0 0 10px", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>−</button>
-          <div style={{ width: 44, height: 38, background: ND, display: "flex", alignItems: "center", justifyContent: "center", color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, borderTop: `1px solid ${N}`, borderBottom: `1px solid ${N}` }}>{val}</div>
-          <button onClick={() => setPlan(p => ({ ...p, [dagTyp]: (p[dagTyp] ?? 0) + 1 }))}
-            style={{ width: 38, height: 38, borderRadius: "0 10px 10px 0", background: G, border: "none", color: "#001435", fontSize: 22, fontWeight: 900, cursor: "pointer" }}>+</button>
-        </div>
-      </div>
-    );
+  function handleKod(val) {
+    setKod(val);
+    setFel("");
+    if (val.length > 10) {
+      const result = decodeProvision(val);
+      setPreview(result);
+      if (!result) setFel("Ogiltig kod — kontrollera att du kopierat hela koden");
+    } else {
+      setPreview(null);
+    }
   }
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 100 }}>
       <div style={{ width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0", padding: "20px 18px 40px", animation: "slideUp .25s ease", maxHeight: "85vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Planerade pass</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>📥 Ange delningskod</div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 16 }}>Klistra in koden från din chef eller kollega</div>
+
+        <textarea
+          value={kod}
+          onChange={e => handleKod(e.target.value)}
+          placeholder="Klistra in kod här..."
+          rows={3}
+          style={{
+            width: "100%", background: ND, border: `1px solid ${fel ? "#aa2222" : N}`,
+            color: "#fff", borderRadius: 10, padding: "12px 14px",
+            fontSize: 13, fontFamily: "monospace", resize: "none", marginBottom: 8,
+          }}
+        />
+
+        {fel && <div style={{ color: "#ff6666", fontSize: 12, marginBottom: 12 }}>{fel}</div>}
+
+        {preview && (<>
+          <div style={{ background: `${G}15`, border: `1px solid ${GD}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+            <div style={{ color: G, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>✅ Förhandsgranskning</div>
+            {preview.stege.map((s, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${N}` }}>
+                <span style={{ color: "#5577aa", fontSize: 13 }}>Steg {i+1}: {s.snitt.toLocaleString("sv-SE")} kr/dag</span>
+                <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}>{s.procent}%</span>
+              </div>
+            ))}
+            {preview.kpiMål.map(k => (
+              <div key={k.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${N}` }}>
+                <span style={{ color: "#5577aa", fontSize: 13 }}>KPI: {k.namn} ({k.mål} st/dag)</span>
+                <span style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}>+{k.procent}%</span>
+              </div>
+            ))}
+            {preview.bonusAktiv && <div style={{ color: "#f5a623", fontSize: 12, marginTop: 6 }}>🏆 Tävlingsbonus aktiv</div>}
+          </div>
+          <button onClick={() => onApply(preview.stege, preview.kpiMål, preview.bonusAktiv)} style={{
+            width: "100%", padding: 16, background: G, border: "none",
+            borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+            cursor: "pointer", fontFamily: "Outfit, sans-serif",
+          }}>Använd denna provision</button>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// ─── Planera-modal (kalender) ────────────────────────────────────────────
+function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
+  // Stöd både gammal (object) och ny (array) format
+  const initArray = Array.isArray(initialPlan) ? initialPlan : [];
+  const [plan, setPlan]         = useState(initArray);
+  const [editDay, setEditDay]   = useState(null); // { datum, dagTyp, startMin, endMin }
+  const [holdTimer, setHoldTimer] = useState(null);
+
+  const [year, mo] = month.split("-").map(Number);
+  const daysInMonth = new Date(year, mo, 0).getDate();
+  const firstDow    = new Date(year, mo - 1, 1).getDay(); // 0=sön
+  const startOffset = (firstDow + 6) % 7; // måndag=0
+
+  function dateStr(day) {
+    return `${year}-${String(mo).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+  }
+
+  function getPlanDay(datum) { return plan.find(p => p.datum === datum); }
+
+  function toggleDay(datum) {
+    const dagTyp = getDagTypFromDate(datum);
+    const def    = settings.defaults?.[dagTyp] ?? {};
+    if (getPlanDay(datum)) {
+      setPlan(p => p.filter(x => x.datum !== datum));
+    } else {
+      setPlan(p => [...p, { datum, dagTyp, startMin: def.start ?? 9*60+45, endMin: def.end ?? 17*60 }]);
+    }
+  }
+
+  function startHold(datum) {
+    const t = setTimeout(() => {
+      const pd = getPlanDay(datum);
+      if (pd) setEditDay({ ...pd });
+    }, 500);
+    setHoldTimer(t);
+  }
+
+  function endHold() {
+    if (holdTimer) { clearTimeout(holdTimer); setHoldTimer(null); }
+  }
+
+  function saveEditDay(d) {
+    setPlan(p => p.map(x => x.datum === d.datum ? d : x));
+    setEditDay(null);
+  }
+
+  const dagFärg = { vardag: "#5bc500", lördag: "#f5a623", söndag: "#e05c5c", röd: "#e05c5c" };
+  const totalt  = plan.length;
+  const veckodag = ["Mån","Tis","Ons","Tor","Fre","Lör","Sön"];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 100 }}>
+      <div style={{ width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0", padding: "20px 18px 40px", animation: "slideUp .25s ease", maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Planera månaden</div>
+            <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>Tryck = markera · Håll in = justera tider</div>
+          </div>
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
-        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 20 }}>
-          Sätter max antal pass per dagtyp — Gnistan räknar ut hur många som är kvar automatiskt.
+
+        {/* Veckodag-headers */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+          {veckodag.map(d => (
+            <div key={d} style={{ color: d === "Lör" ? "#f5a623" : d === "Sön" ? "#e05c5c" : "#5577aa", fontSize: 10, textAlign: "center", fontWeight: 600 }}>{d}</div>
+          ))}
         </div>
-        <Step dagTyp="vardag" label="Vardagar"   emoji="💼" />
-        <Step dagTyp="lördag" label="Lördagar"  emoji="🛒" />
-        <Step dagTyp="söndag" label="Söndagar"  emoji="☀️" />
-        <Step dagTyp="röd"    label="Röda dagar" emoji="🔴" />
-        <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 20, display: "flex", justifyContent: "space-between" }}>
+
+        {/* Kalender-grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 16 }}>
+          {Array.from({ length: startOffset }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const d      = i + 1;
+            const datum  = dateStr(d);
+            const dagTyp = getDagTypFromDate(datum);
+            const pd     = getPlanDay(datum);
+            const färg   = dagFärg[dagTyp] ?? "#5bc500";
+            const isWeekend = dagTyp === "lördag" || dagTyp === "söndag" || dagTyp === "röd";
+
+            return (
+              <div key={d}
+                onTouchStart={() => startHold(datum)}
+                onTouchEnd={() => { endHold(); }}
+                onTouchMove={() => endHold()}
+                onClick={() => toggleDay(datum)}
+                style={{
+                  aspectRatio: "1", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  borderRadius: 10, cursor: "pointer",
+                  background: pd ? `${färg}33` : "#001435",
+                  border: `2px solid ${pd ? färg : isWeekend ? `${färg}44` : "#002169"}`,
+                  transition: "all .15s",
+                }}
+              >
+                <div style={{ color: pd ? färg : isWeekend ? `${färg}99` : "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>{d}</div>
+                {pd && <div style={{ width: 4, height: 4, borderRadius: "50%", background: färg, marginTop: 1 }} />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Legenden */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+          {[["💼", "#5bc500", "Vardag"], ["🛒", "#f5a623", "Lördag"], ["☀️", "#e05c5c", "Sön/Röd"]].map(([e,c,l]) => (
+            <div key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 12 }}>{e}</span>
+              <span style={{ color: "#5577aa", fontSize: 11 }}>{l}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Sammanfattning */}
+        <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "10px 14px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: "#5577aa", fontSize: 13 }}>Totalt planerade pass</span>
-          <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>{total}</span>
+          <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{totalt}</span>
         </div>
+
         <button onClick={() => onSave(plan)} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
           cursor: "pointer", fontFamily: "Outfit, sans-serif",
         }}>Spara</button>
       </div>
+
+      {/* Tidsjusteringsmodal vid hålltryckning */}
+      {editDay && (
+        <div style={{ position: "absolute", inset: 0, background: "#000c", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, padding: 20 }}>
+          <div style={{ background: "#001a50", borderRadius: 20, padding: 20, width: "100%" }}>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+              Justera öppettider
+            </div>
+            <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 16 }}>
+              {(() => { const p = editDay.datum.split("-"); return `${parseInt(p[2])}/${parseInt(p[1])} · ${DAG_META[editDay.dagTyp]?.label}`; })()}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              {[["Start", "startMin"], ["Slut", "endMin"]].map(([lbl, key]) => (
+                <div key={key}>
+                  <div style={{ color: "#5577aa", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{lbl}</div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <button onClick={() => setEditDay(d => ({ ...d, [key]: Math.max(0, d[key] - 15) }))}
+                      style={{ width: 36, height: 36, borderRadius: "8px 0 0 8px", background: G, border: "none", color: "#001435", fontSize: 20, fontWeight: 900, cursor: "pointer" }}>−</button>
+                    <div style={{ flex: 1, height: 36, background: ND, display: "flex", alignItems: "center", justifyContent: "center", color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16, border: `1px solid ${N}`, borderLeft: "none", borderRight: "none" }}>
+                      {minToHHMM(editDay[key])}
+                    </div>
+                    <button onClick={() => setEditDay(d => ({ ...d, [key]: Math.min(24*60, d[key] + 15) }))}
+                      style={{ width: 36, height: 36, borderRadius: "0 8px 8px 0", background: G, border: "none", color: "#001435", fontSize: 20, fontWeight: 900, cursor: "pointer" }}>+</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setEditDay(null)} style={{ flex: 1, padding: 12, background: "transparent", border: `1px solid ${N}`, borderRadius: 12, color: "#5577aa", cursor: "pointer", fontFamily: "Outfit, sans-serif" }}>Avbryt</button>
+              <button onClick={() => saveEditDay(editDay)} style={{ flex: 2, padding: 12, background: G, border: "none", borderRadius: 12, color: "#001435", fontWeight: 700, cursor: "pointer", fontFamily: "Outfit, sans-serif" }}>Spara tider</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Stege-modal ──────────────────────────────────────────────────────────
-function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onCancel }) {
-  const [stege, setStege]       = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
-  const [kpiMål, setKpiMål]     = useState(initialKPI ?? []);
-  const [bonusAktiv, setBonusAktiv] = useState(initialBonus ?? false);
+// ─── Provisions-kod encode/decode ─────────────────────────────────────────
+function encodeProvision(stege, kpiMål, bonusAktiv) {
+  const data = { s: stege.map(s => [s.snitt, s.procent]), k: kpiMål.map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]), b: bonusAktiv ? 1 : 0 };
+  try { return "LK-" + btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
+  catch { return ""; }
+}
 
+function decodeProvision(kod) {
+  try {
+    if (!kod.startsWith("LK-")) return null;
+    const data = JSON.parse(decodeURIComponent(escape(atob(kod.slice(3)))));
+    const stege = (data.s ?? []).map(([snitt, procent]) => ({ snitt, procent }));
+    const kpiMål = (data.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 }));
+    const bonusAktiv = data.b === 1;
+    return { stege, kpiMål, bonusAktiv };
+  } catch { return null; }
+}
+
+function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onCancel }) {
+  const [stege, setStege]           = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
+  const [kpiMål, setKpiMål]         = useState(initialKPI ?? []);
+  const [bonusAktiv, setBonusAktiv] = useState(initialBonus ?? false);
+  const [kopierad, setKopierad]     = useState(false);
+  const [kodInput, setKodInput]     = useState("");
+  const [kodFel, setKodFel]         = useState(false);
+
+  function kopiera() {
+    const kod = encodeProvision(stege, kpiMål, bonusAktiv);
+    navigator.clipboard?.writeText(kod).then(() => {
+      setKopierad(true);
+      setTimeout(() => setKopierad(false), 2000);
+    });
+  }
+
+  function tillämpKod() {
+    const result = decodeProvision(kodInput.trim());
+    if (!result) { setKodFel(true); setTimeout(() => setKodFel(false), 2000); return; }
+    setStege(result.stege);
+    setKpiMål(result.kpiMål);
+    setBonusAktiv(result.bonusAktiv);
+    setKodInput("");
+  }
+    setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
+  }
   function updateSteg(i, field, val) {
     setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
   }
@@ -1931,8 +2219,28 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
           <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provisionsstege & KPI</div>
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
-        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 20, textTransform: "capitalize" }}>
+        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 16, textTransform: "capitalize" }}>
           {new Date(month + "-01").toLocaleString("sv-SE", { month: "long", year: "numeric" })}
+        </div>
+
+        {/* Ange delningskod */}
+        <div style={{ background: ND, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
+          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📥 Ange delningskod</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={kodInput}
+              onChange={e => setKodInput(e.target.value)}
+              placeholder="LK-..."
+              style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontFamily: "Outfit, sans-serif" }}
+            />
+            <button onClick={tillämpKod} style={{
+              background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
+              color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 13,
+              padding: "8px 14px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
+            }}>
+              {kodFel ? "Ogiltig kod" : "Tillämpa"}
+            </button>
+          </div>
         </div>
 
         {/* TB-stege */}
@@ -2028,8 +2336,18 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
         <button onClick={() => onSave(stege, kpiMål, bonusAktiv)} style={{
           width: "100%", padding: 16, background: G, border: "none",
           borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
-          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+          cursor: "pointer", fontFamily: "Outfit, sans-serif", marginBottom: 10,
         }}>Spara</button>
+
+        <button onClick={kopiera} style={{
+          width: "100%", padding: 12, background: kopierad ? `${G}22` : "transparent",
+          border: `1px solid ${kopierad ? G : "#334"}`,
+          borderRadius: 14, color: kopierad ? G : "#5577aa",
+          fontWeight: 600, fontSize: 14, cursor: "pointer",
+          fontFamily: "Outfit, sans-serif", transition: "all .2s",
+        }}>
+          {kopierad ? "✅ Delningskod kopierad!" : "📤 Kopiera delningskod"}
+        </button>
       </div>
     </div>
   );
