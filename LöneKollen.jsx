@@ -79,10 +79,15 @@ const DEF_SETTINGS = {
 
 const STOR_S  = "lonekollen-settings";
 const STOR_M  = "lonekollen-months";
+const STOR_OB = "lonekollen-onboarding-done";
 
 function loadSettings() {
   try { return { ...DEF_SETTINGS, ...JSON.parse(localStorage.getItem(STOR_S) || "{}") }; }
   catch { return { ...DEF_SETTINGS }; }
+}
+function isOnboardingDone() {
+  try { return localStorage.getItem(STOR_OB) === "1"; }
+  catch { return true; }
 }
 function loadMonths() {
   try { return JSON.parse(localStorage.getItem(STOR_M) || "{}"); }
@@ -111,6 +116,7 @@ export default function LöneKollen() {
   const [tab, setTab]           = useState("mån");
   const [addOpen, setAddOpen]   = useState(false);
   const [editId, setEditId]     = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(() => !isOnboardingDone());
   const [stegeOpen, setStegeOpen]         = useState(false);
   const [bruttoOpen, setBruttoOpen]       = useState(false);
   const [kodModalOpen, setKodModalOpen]   = useState(false);
@@ -1916,10 +1922,21 @@ export default function LöneKollen() {
 
           {/* ════════════════ INSTÄLLNINGAR ════════════════ */}
           {tab === "inst" && (
-            <SettingsPanel settings={settings} setSettings={setSettings} />
+            <SettingsPanel settings={settings} setSettings={setSettings} onRunOnboarding={() => setShowOnboarding(true)} />
           )}
         </div>
       </div>
+
+      {showOnboarding && (
+        <OnboardingModal
+          initialSettings={settings}
+          onDone={(newSettings) => {
+            setSettings(newSettings);
+            try { localStorage.setItem(STOR_OB, "1"); } catch {}
+            setShowOnboarding(false);
+          }}
+        />
+      )}
 
       {dagsmålPopup && (
         <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 200 }}>
@@ -3506,7 +3523,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
 }
 
 // ─── Inställningar ────────────────────────────────────────────────────────
-function SettingsPanel({ settings, setSettings }) {
+function SettingsPanel({ settings, setSettings, onRunOnboarding }) {
   function set(key, val) { setSettings(p => ({ ...p, [key]: val })); }
   function setDefault(dagTyp, field, val) {
     setSettings(p => ({
@@ -3644,6 +3661,227 @@ function SettingsPanel({ settings, setSettings }) {
           </div>
         );
       })}
+
+      {/* Kör setup igen */}
+      <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${N}` }}>
+        <button onClick={onRunOnboarding} style={{
+          width: "100%", padding: 14, background: "transparent",
+          border: `1px solid ${N}`, borderRadius: 14,
+          color: "#5577aa", fontWeight: 600, fontSize: 15,
+          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        }}>
+          🔄 Kör grundinställningar igen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Onboarding Modal ─────────────────────────────────────────────────────
+function OnboardingModal({ initialSettings, onDone }) {
+  const [steg, setSteg] = useState(0);
+  const [timlön, setTimlön] = useState(initialSettings.timlön ?? 172);
+  const [skatt, setSkatt]   = useState(initialSettings.skatt ?? 30);
+  const [semTyp, setSemTyp] = useState(initialSettings.semesterTyp ?? "månadsvis");
+  const [defaults, setDefaults] = useState(initialSettings.defaults ?? DEF_SETTINGS.defaults);
+
+  const totalSteg = 5;
+
+  function setDefault(dagTyp, field, val) {
+    setDefaults(prev => ({ ...prev, [dagTyp]: { ...prev[dagTyp], [field]: val } }));
+  }
+
+  function spara() {
+    onDone({
+      ...initialSettings,
+      timlön, skatt,
+      semesterLön: true,
+      semesterTyp: semTyp,
+      defaults,
+    });
+  }
+
+  const stegFärg = ["#5577aa", G, "#f5a623", G, "#f5a623"];
+  const stegTitlar = ["Välkommen", "Din timlön", "Skatt", "Semester", "Standardtider"];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: ND, zIndex: 300, display: "flex", flexDirection: "column", fontFamily: "Outfit, sans-serif" }}>
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+
+      {/* Progress-bar */}
+      <div style={{ background: N, padding: "18px 18px 14px" }}>
+        <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>LÖNEKOLLEN</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {Array.from({ length: totalSteg }).map((_, i) => (
+            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= steg ? stegFärg[steg] : "#334", transition: "background .3s" }} />
+          ))}
+        </div>
+        <div style={{ color: "#5577aa", fontSize: 12 }}>Steg {steg + 1} av {totalSteg} — {stegTitlar[steg]}</div>
+      </div>
+
+      {/* Innehåll */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "32px 20px" }}>
+
+        {/* Steg 1: Välkommen */}
+        {steg === 0 && (
+          <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}>
+            <div style={{ fontSize: 64, marginBottom: 20 }}>👋</div>
+            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 32, marginBottom: 12 }}>Välkommen till LöneKollen!</div>
+            <div style={{ color: "#5577aa", fontSize: 15, lineHeight: 1.6, marginBottom: 24 }}>
+              Appen beräknar din faktiska lön på Elgiganten — timlön med Handels OB, TB-provision och KPI.
+            </div>
+            <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", textAlign: "left", marginBottom: 24 }}>
+              {[
+                ["📅", "Registrera varje pass med tider och TB"],
+                ["💰", "Se din bruttolön och netto direkt"],
+                ["⚡", "Gnistan visar live-räknare medan du jobbar"],
+                ["📊", "Följ upp mot provision och dagsmål"],
+              ].map(([emoji, text]) => (
+                <div key={text} style={{ display: "flex", gap: 12, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${N}` }}>
+                  <span style={{ fontSize: 20 }}>{emoji}</span>
+                  <span style={{ color: "#c8deff", fontSize: 14 }}>{text}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ color: "#5577aa", fontSize: 13 }}>Sätt upp din profil på under en minut 👇</div>
+          </div>
+        )}
+
+        {/* Steg 2: Timlön */}
+        {steg === 1 && (
+          <div style={{ animation: "fadeIn .3s ease" }}>
+            <div style={{ fontSize: 48, textAlign: "center", marginBottom: 16 }}>💼</div>
+            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 8 }}>Din timlön</div>
+            <div style={{ color: "#5577aa", fontSize: 14, textAlign: "center", marginBottom: 28 }}>Grundlönen du har per timme enligt ditt avtal</div>
+            <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "20px 18px", marginBottom: 16 }}>
+              <div style={{ color: "#5577aa", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 10 }}>Timlön (kr)</div>
+              <input type="number" value={timlön} step={0.5} min={0}
+                onChange={e => setTimlön(parseFloat(e.target.value) || 0)}
+                style={{ width: "100%", background: ND, border: `1px solid ${G}44`, color: G, borderRadius: 12, padding: "16px 18px", fontSize: 28, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[155, 163, 172, 180, 190].map(v => (
+                <button key={v} onClick={() => setTimlön(v)} style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer",
+                  background: timlön === v ? G : NC,
+                  border: `1px solid ${timlön === v ? G : N}`,
+                  color: timlön === v ? "#001435" : "#5577aa",
+                  fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15,
+                }}>{v} kr</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Steg 3: Skatt */}
+        {steg === 2 && (
+          <div style={{ animation: "fadeIn .3s ease" }}>
+            <div style={{ fontSize: 48, textAlign: "center", marginBottom: 16 }}>🧾</div>
+            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 8 }}>Skattenivå</div>
+            <div style={{ color: "#5577aa", fontSize: 14, textAlign: "center", marginBottom: 28 }}>Används för att räkna ut din nettolön</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {[
+                [28, "Låg skatt (28%)"],
+                [30, "Standard (30%) — vanligast"],
+                [32, "Högre skatt (32%)"],
+              ].map(([v, label]) => (
+                <button key={v} onClick={() => setSkatt(v)} style={{
+                  padding: "16px 18px", borderRadius: 14, cursor: "pointer", textAlign: "left",
+                  background: skatt === v ? `${G}20` : NC,
+                  border: `2px solid ${skatt === v ? G : N}`,
+                  fontFamily: "Outfit, sans-serif",
+                }}>
+                  <div style={{ color: skatt === v ? G : "#fff", fontWeight: 700, fontSize: 16 }}>{label}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px" }}>
+              <div style={{ color: "#5577aa", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Eller ange exakt:</div>
+              <input type="number" value={skatt} step={1} min={0} max={60}
+                onChange={e => setSkatt(parseFloat(e.target.value) || 0)}
+                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 10, padding: "10px 14px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Steg 4: Semester */}
+        {steg === 3 && (
+          <div style={{ animation: "fadeIn .3s ease" }}>
+            <div style={{ fontSize: 48, textAlign: "center", marginBottom: 16 }}>🏖️</div>
+            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 8 }}>Semesterersättning</div>
+            <div style={{ color: "#5577aa", fontSize: 14, textAlign: "center", marginBottom: 28 }}>Hur hanteras din semester?</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                ["månadsvis", "💰 Månadsvis +12%", "Semestertillägget betalas ut varje månad direkt på lönen — vanligast för timanställda"],
+                ["dagar", "📅 Semesterdagar separat", "Du sparar semester och tar ut som lediga dagar med semesterlön"],
+              ].map(([val, titel, desc]) => (
+                <button key={val} onClick={() => setSemTyp(val)} style={{
+                  padding: "18px 18px", borderRadius: 16, cursor: "pointer", textAlign: "left",
+                  background: semTyp === val ? `${G}20` : NC,
+                  border: `2px solid ${semTyp === val ? G : N}`,
+                  fontFamily: "Outfit, sans-serif",
+                }}>
+                  <div style={{ color: semTyp === val ? G : "#fff", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{titel}</div>
+                  <div style={{ color: "#5577aa", fontSize: 13, lineHeight: 1.5 }}>{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Steg 5: Standardtider */}
+        {steg === 4 && (
+          <div style={{ animation: "fadeIn .3s ease" }}>
+            <div style={{ fontSize: 48, textAlign: "center", marginBottom: 16 }}>🕐</div>
+            <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 28, textAlign: "center", marginBottom: 8 }}>Dina standardtider</div>
+            <div style={{ color: "#5577aa", fontSize: 14, textAlign: "center", marginBottom: 24 }}>Fylls i automatiskt när du registrerar ett pass — går alltid att ändra</div>
+            {Object.entries(DAG_META).map(([typ, meta]) => {
+              const d = defaults[typ] ?? {};
+              return (
+                <div key={typ} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+                  <div style={{ color: meta.color, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>{meta.emoji} {meta.label}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {[["Start", "start"], ["Slut", "end"]].map(([lbl, field]) => (
+                      <div key={field}>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{lbl}</div>
+                        <input type="time" value={minToHHMM(d[field] ?? (field === "start" ? 9*60+45 : 17*60))}
+                          onChange={e => {
+                            const [h, m] = e.target.value.split(":").map(Number);
+                            setDefault(typ, field, h * 60 + m);
+                          }}
+                          style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "8px 10px", fontSize: 15, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, colorScheme: "dark" }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Knappar */}
+      <div style={{ padding: "16px 20px 40px", background: N, display: "flex", gap: 10 }}>
+        {steg > 0 && (
+          <button onClick={() => setSteg(s => s - 1)} style={{
+            flex: 1, padding: 14, background: "transparent", border: `1px solid ${N}`,
+            borderRadius: 14, color: "#5577aa", fontWeight: 600, fontSize: 15,
+            cursor: "pointer", fontFamily: "Outfit, sans-serif",
+          }}>← Tillbaka</button>
+        )}
+        <button onClick={() => steg < totalSteg - 1 ? setSteg(s => s + 1) : spara()} style={{
+          flex: 2, padding: 14,
+          background: steg === totalSteg - 1 ? G : stegFärg[steg],
+          border: "none", borderRadius: 14,
+          color: "#001435", fontWeight: 700, fontSize: 16,
+          cursor: "pointer", fontFamily: "Outfit, sans-serif",
+        }}>
+          {steg === totalSteg - 1 ? "✅ Klar — starta appen!" : "Nästa →"}
+        </button>
+      </div>
     </div>
   );
 }
