@@ -573,6 +573,94 @@ export default function LöneKollen() {
               </div>
             )}
 
+            {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
+            <div style={{ marginBottom: 14 }}>
+              <div onClick={() => setBruttoOpen(o => !o)} style={{
+                background: N, borderRadius: bruttoOpen ? "16px 16px 0 0" : 16,
+                padding: "18px 18px 14px", cursor: "pointer",
+                borderBottom: bruttoOpen ? `1px solid ${ND}` : "none",
+                transition: "border-radius .2s",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
+                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
+                      <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
+                      {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
+                      {summary.bonusTotal > 0 && <span>🏆 {fmt(summary.bonusTotal)}</span>}
+                    </div>
+                  </div>
+                  <div style={{ color: "#5577aa", fontSize: 18, marginTop: 4 }}>{bruttoOpen ? "▲" : "▼"}</div>
+                </div>
+              </div>
+              {bruttoOpen && (
+                <div style={{ background: NC, padding: "12px 18px", borderBottom: `1px solid ${ND}` }}>
+                  {[
+                    ["Baslön", summary.baseLön, null],
+                    ["OB-tillägg", summary.obLön, null],
+                    ...(summary.periodSummaries
+                      ? summary.periodSummaries.map(p => [`${p.namn} provision`, p.tbProv, p.specialAktiverad ? "#f5a623" : null])
+                      : [[`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null]]),
+                    ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
+                    ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
+                    ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
+                  ].map(([label, val, color], i, arr) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none" }}>
+                      <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
+                      <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 14 }}>{fmt(val)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex" }}>
+                <div style={{ flex: 1, background: NC, padding: "14px 18px", borderRight: `1px solid ${ND}`, borderRadius: bruttoOpen ? "0 0 0 16px" : "0 0 0 16px" }}>
+                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
+                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
+                </div>
+                {settings.semesterLön && (
+                  <div style={{ flex: 1, background: `${G}18`, padding: "14px 18px", borderRadius: "0 0 16px 0" }}>
+                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
+                    </div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
+                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Pass-räknare */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              {(summary.isManual ? [
+                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0, null],
+                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0, null],
+                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0, null],
+                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0, null],
+                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
+              ].filter(([,v]) => v > 0) : [
+                ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
+                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
+                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
+                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
+                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
+              ]).map(([label, val, plan]) => (
+                <div key={label} style={{ background: ND, border: `1px solid ${N}`, borderRadius: 8, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
+                  <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
+                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>
+                    {val}{plan !== null ? <span style={{ color: "#5577aa", fontWeight: 500 }}>/{plan}</span> : ""}
+                  </span>
+                </div>
+              ))}
+              <button onClick={() => setPlaneraOpen(true)} style={{
+                background: "transparent", border: `1px solid ${N}`,
+                borderRadius: 8, color: "#5577aa", fontSize: 12,
+                padding: "5px 10px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>✏️ Planera</button>
+            </div>
+
             {/* TB-sektion — visas bara utan perioder */}
             {summary.säljDagar > 0 && !summary.periodSummaries && (
               <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid ${GD}` }}>
