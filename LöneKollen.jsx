@@ -114,6 +114,7 @@ export default function LöneKollen() {
   const [stegeOpen, setStegeOpen]         = useState(false);
   const [bruttoOpen, setBruttoOpen]       = useState(false);
   const [kodModalOpen, setKodModalOpen]   = useState(false);
+  const [expandPeriod, setExpandPeriod]   = useState(null); // period id som är expanderad
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -439,104 +440,122 @@ export default function LöneKollen() {
           {/* ════════════════ MÅNADSVY ════════════════ */}
           {tab === "mån" && (<>
 
-            {/* Stege-banner */}
-            {!mData.tbStege && !mData.perioder && (
-              <div style={{
-                background: "#1a1000", border: "1px solid #f5a62355",
-                borderRadius: 14, padding: "14px 16px", marginBottom: 14,
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            {/* Provision-knapp */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <button onClick={() => setStegeOpen(true)} style={{
+                flex: 1, padding: "11px 0",
+                background: (!mData.tbStege && !mData.perioder) ? "#f5a623" : NC,
+                border: `1px solid ${(!mData.tbStege && !mData.perioder) ? "#f5a623" : N}`,
+                borderRadius: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+                fontWeight: 700, fontSize: 14,
+                color: (!mData.tbStege && !mData.perioder) ? "#001435" : "#fff",
               }}>
-                <div>
-                  <div style={{ color: "#f5a623", fontWeight: 700, fontSize: 14 }}>⚠️ Ingen provisionsstege satt</div>
-                  <div style={{ color: "#5577aa", fontSize: 12, marginTop: 3 }}>Sätt månadens stege för korrekt provisionsberäkning</div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setKodModalOpen(true)} style={{
-                    background: "transparent", border: "1px solid #f5a62355",
-                    borderRadius: 10, color: "#f5a623", fontWeight: 600, fontSize: 13,
-                    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
-                    fontFamily: "Outfit, sans-serif",
-                  }}>📥 Ange kod</button>
-                  <button onClick={() => setStegeOpen(true)} style={{
-                    background: "#f5a623", border: "none", borderRadius: 10,
-                    color: "#001435", fontWeight: 700, fontSize: 13,
-                    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
-                    fontFamily: "Outfit, sans-serif",
-                  }}>Sätt stege</button>
-                </div>
-              </div>
-            )}
+                {(!mData.tbStege && !mData.perioder) ? "⚠️ Sätt provision" : "⚙️ Provision"}
+              </button>
+            </div>
 
-            {(mData.tbStege || mData.perioder) && (
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setKodModalOpen(true)} style={{
-                  background: "transparent", border: `1px solid ${N}`,
-                  borderRadius: 8, color: "#5577aa", fontSize: 12,
-                  padding: "5px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                }}>📥 Ange kod</button>
-                <button onClick={() => setStegeOpen(true)} style={{
-                  background: "transparent", border: `1px solid ${N}`,
-                  borderRadius: 8, color: "#5577aa", fontSize: 12,
-                  padding: "5px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                }}>✏️ {mData.perioder ? "Ändra perioder" : "Ändra stege"}</button>
-              </div>
-            )}
-
-            {/* Period-TB-kort (visas när perioder finns) */}
+            {/* Expanderbara period-kort */}
             {summary.periodSummaries && (
               <div style={{ marginBottom: 14 }}>
                 {summary.periodSummaries.map((p, pi) => {
-                  const färg = pi === 0 ? "#5577aa" : "#f5a623";
-                  const snittTB = p.säljDagar > 0 ? p.totalTB / p.säljDagar : 0;
+                  const pFärg = pi === 0 ? "#5577aa" : "#f5a623";
+                  const pExpanded = expandPeriod === p.id;
+                  const pSnitt = p.säljDagar > 0 ? p.totalTB / p.säljDagar : 0;
+                  const pStege = p.tbStege ?? [];
+                  const pNästa = pStege.find(s => s.snitt > pSnitt);
+                  const pTbGräns = p.specialRegel?.aktiv ? (p.specialRegel.snittGräns ?? 0) * p.säljDagar : 0;
+                  const pTillgodo = p.totalTB - (p.aktivStege?.snitt ?? 0) * p.säljDagar;
+                  const pÖverskott = pTillgodo >= 0;
                   return (
-                    <div key={p.id} style={{
-                      background: NC, border: `1px solid ${färg}55`,
-                      borderRadius: 14, padding: "14px 16px", marginBottom: 10,
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                        <div>
-                          <div style={{ color: färg, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>
-                            {p.namn || `Period ${pi + 1}`}
+                    <div key={p.id} style={{ marginBottom: 10 }}>
+                      <div onClick={() => setExpandPeriod(pExpanded ? null : p.id)} style={{
+                        background: NC, border: `2px solid ${pExpanded ? pFärg : `${pFärg}44`}`,
+                        borderRadius: pExpanded ? "14px 14px 0 0" : 14,
+                        padding: "14px 16px", cursor: "pointer",
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ color: pFärg, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                                {p.namn || `Period ${pi + 1}`}
+                              </div>
+                              {p.specialAktiverad && <div style={{ background: "#f5a62333", border: "1px solid #f5a62366", borderRadius: 20, padding: "2px 8px", fontSize: 10, color: "#f5a623" }}>💎 Special</div>}
+                            </div>
+                            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
+                              {p.startDatum?.slice(5).replace("-","/")} – {p.slutDatum?.slice(5).replace("-","/")} · {p.säljDagar} pass
+                            </div>
                           </div>
-                          <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
-                            {p.startDatum?.slice(5).replace("-","/")} – {p.slutDatum?.slice(5).replace("-","/")} · {p.säljDagar} pass
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ color: p.specialAktiverad ? "#f5a623" : G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
-                            {fmt(p.tbProv)}
-                          </div>
-                          <div style={{ color: "#5577aa", fontSize: 11 }}>provision</div>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
-                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Total TB</div>
-                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>{Math.round(p.totalTB).toLocaleString("sv-SE")} kr</div>
-                        </div>
-                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
-                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Snitt/dag</div>
-                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>{Math.round(snittTB).toLocaleString("sv-SE")} kr</div>
-                        </div>
-                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
-                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Serie</div>
-                          <div style={{ color: p.specialAktiverad ? "#f5a623" : G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>
-                            {p.specialAktiverad ? "💎 Special" : `${(p.aktivStege?.procent ?? 0) + (p.kpiProcent ?? 0)}%`}
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ color: p.specialAktiverad ? "#f5a623" : G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>{fmt(p.tbProv)}</div>
+                              <div style={{ color: "#5577aa", fontSize: 10 }}>provision</div>
+                            </div>
+                            <div style={{ color: "#5577aa", fontSize: 16 }}>{pExpanded ? "▲" : "▼"}</div>
                           </div>
                         </div>
-                      </div>
-                      {p.specialAktiverad && (
-                        <div style={{ marginTop: 8, background: "#1a1200", border: "1px solid #f5a62344", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#f5a623" }}>
-                          🏆 Specialregel aktiv: {p.specialRegel?.snittProcent ?? 7}% upp till gränsen + {p.specialRegel?.överskottProcent ?? 10}% på överskott
-                        </div>
-                      )}
-                      {p.kpiResults?.filter(k => k.nådd).length > 0 && !p.specialAktiverad && (
-                        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {p.kpiResults.filter(k => k.nådd).map(k => (
-                            <div key={k.id} style={{ background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, color: G }}>
-                              ✅ {k.namn} +{k.procent}%
+                        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                          {[["TB", `${Math.round(p.totalTB).toLocaleString("sv-SE")} kr`], ["Snitt", `${Math.round(pSnitt).toLocaleString("sv-SE")} kr`], ["Serie", p.specialAktiverad ? "💎" : `${(p.aktivStege?.procent ?? 0) + (p.kpiProcent ?? 0)}%`]].map(([lbl, val]) => (
+                            <div key={lbl} style={{ flex: 1, background: ND, borderRadius: 8, padding: "6px 8px" }}>
+                              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1 }}>{lbl}</div>
+                              <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 13 }}>{val}</div>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                      {pExpanded && (
+                        <div style={{ background: "#001030", border: `2px solid ${pFärg}`, borderTop: "none", borderRadius: "0 0 14px 14px", padding: "14px 16px" }}>
+                          {p.specialRegel?.aktiv && (
+                            <div style={{ background: p.specialAktiverad ? "#1a1200" : "#0d0d1a", border: `1px solid ${p.specialAktiverad ? "#f5a62355" : "#334"}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+                              <div style={{ color: p.specialAktiverad ? "#f5a623" : "#5577aa", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                                💎 Specialregel: snitt ≥ {(p.specialRegel.snittGräns ?? 0).toLocaleString("sv-SE")} kr/dag
+                              </div>
+                              {p.specialAktiverad ? (
+                                <div style={{ color: "#c8a055", fontSize: 11 }}>
+                                  {p.specialRegel.snittProcent ?? 7}% × {Math.round(Math.min(p.totalTB, pTbGräns)).toLocaleString("sv-SE")} kr
+                                  {p.totalTB > pTbGräns ? ` + ${p.specialRegel.överskottProcent ?? 10}% × ${Math.round(p.totalTB - pTbGräns).toLocaleString("sv-SE")} kr överskott` : ""}
+                                </div>
+                              ) : (
+                                <div style={{ color: "#5577aa", fontSize: 11 }}>
+                                  Höj snittet med {Math.max(0, Math.round((p.specialRegel.snittGräns ?? 0) - pSnitt)).toLocaleString("sv-SE")} kr/dag för att aktivera
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {!p.specialRegel?.aktiv && (
+                            <div style={{ background: pÖverskott ? `${G}15` : "#1a0000", border: `1px solid ${pÖverskott ? GD : "#aa2222"}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div>
+                                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>TB tillgodo på {p.aktivStege?.procent ?? 0}%-nivån</div>
+                                <div style={{ color: "#5577aa", fontSize: 11 }}>{Math.round(p.totalTB).toLocaleString("sv-SE")} − {Math.round((p.aktivStege?.snitt ?? 0) * p.säljDagar).toLocaleString("sv-SE")} kr</div>
+                              </div>
+                              <div style={{ color: pÖverskott ? G : "#ff6666", fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                                {pÖverskott ? "+" : ""}{Math.round(pTillgodo).toLocaleString("sv-SE")} kr
+                              </div>
+                            </div>
+                          )}
+                          {pNästa && !p.specialAktiverad && (
+                            <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                                <span style={{ color: "#5577aa", fontSize: 11 }}>Snitt: {Math.round(pSnitt).toLocaleString("sv-SE")} kr/dag</span>
+                                <span style={{ color: pFärg, fontSize: 11, fontWeight: 700 }}>Mål: {pNästa.snitt.toLocaleString("sv-SE")} kr/dag</span>
+                              </div>
+                              <div style={{ height: 6, background: "#001435", borderRadius: 3, overflow: "hidden", marginBottom: 6 }}>
+                                <div style={{ height: "100%", borderRadius: 3, background: `linear-gradient(90deg,${pFärg}88,${pFärg})`, width: `${Math.min(100, (pSnitt / pNästa.snitt) * 100)}%`, transition: "width .4s" }} />
+                              </div>
+                              <div style={{ color: "#5577aa", fontSize: 11, textAlign: "center" }}>
+                                +{Math.round(pNästa.snitt - pSnitt).toLocaleString("sv-SE")} kr/dag → {pNästa.procent}%
+                              </div>
+                            </div>
+                          )}
+                          {p.kpiResults?.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {p.kpiResults.map(kpi => (
+                                <div key={kpi.id} style={{ background: kpi.nådd ? `${G}15` : "#1a0000", border: `1px solid ${kpi.nådd ? GD : "#aa2222"}`, borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <div style={{ color: kpi.nådd ? G : "#5577aa", fontSize: 12 }}>{kpi.nådd ? "✅" : "⬜"} {kpi.namn} · {kpi.snitt.toFixed(1)}/{kpi.mål} st</div>
+                                  <div style={{ color: kpi.nådd ? G : "#5577aa", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>+{kpi.procent}%</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -545,116 +564,8 @@ export default function LöneKollen() {
               </div>
             )}
 
-            {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
-            <div style={{ marginBottom: 14 }}>
-              {/* Brutto — tryckbar för att se uppdelning */}
-              <div
-                onClick={() => setBruttoOpen(o => !o)}
-                style={{
-                  background: N, borderRadius: bruttoOpen ? "16px 16px 0 0" : 16,
-                  padding: "18px 18px 14px", cursor: "pointer",
-                  borderBottom: bruttoOpen ? `1px solid ${ND}` : "none",
-                  transition: "border-radius .2s",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
-                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
-                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
-                      <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
-                      {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
-                      {summary.bonusTotal > 0 && <span>🏆 {fmt(summary.bonusTotal)}</span>}
-                    </div>
-                  </div>
-                  <div style={{ color: "#5577aa", fontSize: 18, marginTop: 4 }}>{bruttoOpen ? "▲" : "▼"}</div>
-                </div>
-              </div>
-
-              {/* Expanderad uppdelning */}
-              {bruttoOpen && (
-                <div style={{ background: NC, padding: "12px 18px", borderBottom: `1px solid ${ND}` }}>
-                  {[
-                    ["Baslön", summary.baseLön, null],
-                    ["OB-tillägg", summary.obLön, null],
-                    [`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null],
-                    ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
-                    ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
-                    ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
-                  ].map(([label, val, color], i, arr) => (
-                    <div key={label} style={{
-                      display: "flex", justifyContent: "space-between",
-                      padding: "6px 0",
-                      borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none",
-                    }}>
-                      <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
-                      <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 14 }}>{fmt(val)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Netto + Semesterlön */}
-              <div style={{ display: "flex" }}>
-                <div style={{
-                  flex: 1, background: NC, padding: "14px 18px",
-                  borderRadius: bruttoOpen ? "0 0 0 16px" : "0 0 0 16px",
-                  borderRight: `1px solid ${ND}`,
-                }}>
-                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
-                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
-                </div>
-                {settings.semesterLön && (
-                  <div style={{
-                    flex: 1, background: `${G}18`, padding: "14px 18px",
-                    borderRadius: "0 0 16px 0",
-                  }}>
-                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
-                    </div>
-                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
-                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pass-räknare */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-              {(summary.isManual ? [
-                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0, null],
-                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0, null],
-                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0, null],
-                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0, null],
-                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
-              ].filter(([,v]) => v > 0) : [
-                ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
-                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
-                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
-                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
-                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
-              ]).map(([label, val, plan]) => (
-                <div key={label} style={{
-                  background: ND, border: `1px solid ${N}`, borderRadius: 8,
-                  padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
-                }}>
-                  <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
-                  <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
-                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>
-                    {val}{plan !== null ? <span style={{ color: "#5577aa", fontWeight: 500 }}>/{plan}</span> : ""}
-                  </span>
-                </div>
-              ))}
-              <button onClick={() => setPlaneraOpen(true)} style={{
-                background: "transparent", border: `1px solid ${N}`,
-                borderRadius: 8, color: "#5577aa", fontSize: 12,
-                padding: "5px 10px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
-              }}>✏️ Planera</button>
-            </div>
-
-            {/* TB-sektion */}
-            {summary.säljDagar > 0 && (
+            {/* TB-sektion — visas bara utan perioder */}
+            {summary.säljDagar > 0 && !summary.periodSummaries && (
               <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid ${GD}` }}>
 
                 {/* ── HERO: Total provision-% + KPI-badges ── */}
@@ -951,25 +862,35 @@ export default function LöneKollen() {
             const isAfter       = nowMin >= sparkEnd;
 
             const todayTB       = parseFloat(sparkTB) || 0;
+            // ── Gnistan: använd senaste aktiva period om perioder finns ──────
+            const gnistanPeriod = summary.periodSummaries
+              ? summary.periodSummaries[summary.periodSummaries.length - 1]
+              : null;
+
             const säljDays      = days.filter(d => d.passTyp !== "annan");
-            const befintligTB   = säljDays.reduce((s,d) => s + (d.tb ?? 0), 0);
+            // Om perioder: filtrera säljpass till aktuell period
+            const aktivaPeriodDays = gnistanPeriod
+              ? days.filter(d => d.passTyp !== "annan" && d.datum && d.datum >= gnistanPeriod.startDatum && d.datum <= gnistanPeriod.slutDatum)
+              : säljDays;
+
+            const befintligTB   = aktivaPeriodDays.reduce((s,d) => s + (d.tb ?? 0), 0);
             const nyTotalTB     = befintligTB + todayTB;
-            const nySäljDagar   = säljDays.length + (todayTB > 0 ? 1 : 0);
+            const nySäljDagar   = aktivaPeriodDays.length + (todayTB > 0 ? 1 : 0);
             const nySnitt       = nySäljDagar > 0 ? nyTotalTB / nySäljDagar : 0;
-            const stege         = monthStege;
+            const stege         = gnistanPeriod ? (gnistanPeriod.tbStege ?? []) : monthStege;
             const aktivTier     = [...stege].reverse().find(s => nySnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
             const nästaStegeTB  = stege.find(s => s.snitt > nySnitt);
             const nyProv        = nyTotalTB * (aktivTier.procent / 100);
-            const gammalSnitt   = säljDays.length > 0 ? befintligTB / säljDays.length : 0;
+            const gammalSnitt   = aktivaPeriodDays.length > 0 ? befintligTB / aktivaPeriodDays.length : 0;
             const gammalTier    = [...stege].reverse().find(s => gammalSnitt >= s.snitt) ?? stege[0] ?? { procent: 0 };
             const gammalProv    = befintligTB * (gammalTier.procent / 100);
             const tbBidrag      = nyProv - gammalProv;
 
-            const curTotalTB    = summary.totalTB;
-            const curSäljDagar  = summary.säljDagar;
-            const curSnitt      = summary.snittTB;
-            const nästaStege_   = summary.nästaStege;
-            const aktivStege_   = summary.aktivStege;
+            const curTotalTB    = gnistanPeriod ? gnistanPeriod.totalTB : summary.totalTB;
+            const curSäljDagar  = gnistanPeriod ? gnistanPeriod.säljDagar : summary.säljDagar;
+            const curSnitt      = curSäljDagar > 0 ? curTotalTB / curSäljDagar : 0;
+            const nästaStege_   = gnistanPeriod ? (stege.find(s => s.snitt > curSnitt) ?? null) : summary.nästaStege;
+            const aktivStege_   = gnistanPeriod ? gnistanPeriod.aktivStege : summary.aktivStege;
 
             const totalPassKvar = Math.max(1, passKvar);
             const neededSnittNästa = nästaStege_?.snitt ?? 0;
