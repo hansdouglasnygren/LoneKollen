@@ -1712,8 +1712,6 @@ export default function LöneKollen() {
           }}
           onSavePerioder={(nyaPerioder) => {
             saveMonthPerioder(nyaPerioder);
-            // Ta bort gamla tbStege/kpiMål när perioder används
-            mutateMonth(cur => ({ ...cur, tbStege: undefined, kpiMål: undefined }));
             setStegeOpen(false);
           }}
           onCancel={() => setStegeOpen(false)}
