@@ -148,6 +148,17 @@ export default function LöneKollen() {
   const days   = mData.days || [];
   const monthStege = mData.tbStege ?? settings.tbStege ?? [];
 
+  // ── Perioder — ny multi-period struktur ──────────────────────────────────
+  // mData.perioder = [{ id, namn, startDatum, slutDatum, tbStege, kpiMål, bonusAktiv, specialRegel }]
+  // specialRegel: { aktiv, snittGräns, snittProcent, överskottProcent, tjänstKrav }
+  // Fallback: om inga perioder finns används gamla tbStege/kpiMål för hela månaden
+  const perioder = mData.perioder ?? null;
+
+  function getDatumPeriod(datum) {
+    if (!perioder || !datum) return null;
+    return perioder.find(p => datum >= p.startDatum && datum <= p.slutDatum) ?? null;
+  }
+
   // Auto-beräkna pass kvar från planerade
   const planerade      = mData.planerade ?? {};
   const planeradeArray = Array.isArray(planerade) ? planerade : []; // ny format
@@ -176,6 +187,10 @@ export default function LöneKollen() {
     mutateMonth(cur => ({ ...cur, kpiMål }));
   }
 
+  function saveMonthPerioder(nyaPerioder) {
+    mutateMonth(cur => ({ ...cur, perioder: nyaPerioder }));
+  }
+
   function savePlanerade(p) {
     mutateMonth(cur => ({ ...cur, planerade: p }));
   }
@@ -189,59 +204,132 @@ export default function LöneKollen() {
 
   function deleteDay(id) { mutateDays(ds => ds.filter(d => d.id !== id)); }
 
-  // ── Summering ────────────────────────────────────────────────────────────
-  const summary = useMemo(() => {
-    const manual   = mData.manualTB;
-    const kpiMål   = mData.kpiMål ?? [];
-    let baseLön = 0, obLön = 0, skottTotal = 0, bonusTotal = 0;
+  // ── Hjälpfunktion: beräkna provision för en grupp pass + en period-config ──
+  function calcPeriodSummary(passDays, stege, kpiMål, specialRegel) {
     let totalTB = 0, säljDagar = 0;
-
-    if (manual) {
-      totalTB    = manual.totalTB   ?? 0;
-      säljDagar  = manual.säljDagar ?? 0;
-      skottTotal = manual.skott     ?? 0;
-    } else {
-      days.forEach(d => {
-        const breakMin = getBreakMin(d.dagTyp);
-        const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
-        const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
-        baseLön += normal;
-        obLön   += (total - normal);
-        if (d.passTyp === "annan") {
-          skottTotal += (d.skott ?? 0);
-        } else {
-          totalTB  += (d.tb ?? 0);
-          säljDagar++;
-        }
-        bonusTotal += (d.bonus ?? 0);
-      });
-    }
-
+    passDays.forEach(d => {
+      if (d.passTyp !== "annan") { totalTB += (d.tb ?? 0); säljDagar++; }
+    });
     const snittTB    = säljDagar > 0 ? totalTB / säljDagar : 0;
-    const stege      = monthStege;
     const aktivStege = [...stege].reverse().find(s => snittTB >= s.snitt) ?? stege[0] ?? { procent: 0 };
     const nästaStege = stege.find(s => s.snitt > snittTB);
 
-    // KPI-beräkning
-    const säljPass = days.filter(d => d.passTyp !== "annan");
-    const kpiResults = kpiMål.filter(k => k.aktiv !== false).map(kpi => {
+    const säljPass = passDays.filter(d => d.passTyp !== "annan");
+    const kpiResults = (kpiMål ?? []).filter(k => k.aktiv !== false).map(kpi => {
       const vals  = säljPass.map(d => d.tjänster?.[kpi.id] ?? 0);
       const snitt = vals.length > 0 ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
       const nådd  = snitt >= kpi.mål;
       return { ...kpi, snitt, nådd };
     });
     const kpiProcent = kpiResults.filter(k => k.nådd).reduce((s,k) => s + k.procent, 0);
-    const totalProcent = (aktivStege.procent + kpiProcent) / 100;
-    const tbProv     = totalTB * totalProcent;
-    const provTotal  = tbProv + skottTotal + bonusTotal;
 
+    // Specialregel (t.ex. Diamant-tävling: snitt ≥ 15 000 → 7% på hela + 10% på överskott)
+    let tbProv = 0;
+    let specialAktiverad = false;
+    if (specialRegel?.aktiv && snittTB >= (specialRegel.snittGräns ?? 0)) {
+      specialAktiverad = true;
+      const snittProcent = (specialRegel.snittProcent ?? 7) / 100;
+      const överskottProcent = (specialRegel.överskottProcent ?? 10) / 100;
+      const snittGräns = specialRegel.snittGräns ?? 0;
+      const tbGräns = snittGräns * säljDagar;
+      const tbÖver  = Math.max(0, totalTB - tbGräns);
+      tbProv = totalTB * snittProcent + tbÖver * överskottProcent;
+    } else {
+      const totalProcent = (aktivStege.procent + kpiProcent) / 100;
+      tbProv = totalTB * totalProcent;
+    }
+
+    return { totalTB, snittTB, säljDagar, aktivStege, nästaStege, kpiResults, kpiProcent, tbProv, specialAktiverad };
+  }
+
+  // ── Summering ────────────────────────────────────────────────────────────
+  const summary = useMemo(() => {
+    const manual   = mData.manualTB;
+    const kpiMål   = mData.kpiMål ?? [];
+    let baseLön = 0, obLön = 0, skottTotal = 0, bonusTotal = 0;
+
+    days.forEach(d => {
+      const breakMin = getBreakMin(d.dagTyp);
+      const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
+      const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+      baseLön += normal;
+      obLön   += (total - normal);
+      if (d.passTyp === "annan") skottTotal += (d.skott ?? 0);
+      bonusTotal += (d.bonus ?? 0);
+    });
+
+    let tbProv = 0, totalTB = 0, säljDagar = 0;
+    let aktivStege = monthStege[0] ?? { procent: 0 };
+    let nästaStege = null;
+    let kpiResults = [];
+    let kpiProcent = 0;
+    let periodSummaries = null; // fylls i om perioder finns
+
+    if (manual) {
+      totalTB    = manual.totalTB   ?? 0;
+      säljDagar  = manual.säljDagar ?? 0;
+      skottTotal = manual.skott     ?? 0;
+      const snittTB = säljDagar > 0 ? totalTB / säljDagar : 0;
+      aktivStege = [...monthStege].reverse().find(s => snittTB >= s.snitt) ?? monthStege[0] ?? { procent: 0 };
+      nästaStege = monthStege.find(s => s.snitt > snittTB);
+      tbProv = totalTB * (aktivStege.procent / 100);
+    } else if (perioder && perioder.length > 0) {
+      // ── Multi-period beräkning ──
+      periodSummaries = perioder.map(p => {
+        const pDays = days.filter(d => d.datum && d.datum >= p.startDatum && d.datum <= p.slutDatum);
+        return {
+          ...p,
+          ...calcPeriodSummary(pDays, p.tbStege ?? [], p.kpiMål ?? [], p.specialRegel),
+          passDays: pDays,
+        };
+      });
+
+      // Pass utan period (inget datum eller utanför alla perioder) → vanlig stege
+      const oDays = days.filter(d => !d.datum || !perioder.some(p => d.datum >= p.startDatum && d.datum <= p.slutDatum));
+      let oProv = 0, oTB = 0, oSälj = 0;
+      oDays.forEach(d => { if (d.passTyp !== "annan") { oTB += (d.tb ?? 0); oSälj++; } });
+      if (oSälj > 0) {
+        const oSnitt = oTB / oSälj;
+        const oStege = [...monthStege].reverse().find(s => oSnitt >= s.snitt) ?? monthStege[0] ?? { procent: 0 };
+        oProv = oTB * (oStege.procent / 100);
+      }
+
+      tbProv = periodSummaries.reduce((s, p) => s + p.tbProv, 0) + oProv;
+      totalTB = periodSummaries.reduce((s, p) => s + p.totalTB, 0) + oTB;
+      säljDagar = periodSummaries.reduce((s, p) => s + p.säljDagar, 0) + oSälj;
+      // Använd sista perioden för aktivStege/nästaStege (visas i gnistan)
+      const sistaPeriod = periodSummaries[periodSummaries.length - 1];
+      aktivStege = sistaPeriod?.aktivStege ?? monthStege[0] ?? { procent: 0 };
+      nästaStege = sistaPeriod?.nästaStege ?? null;
+      kpiResults = sistaPeriod?.kpiResults ?? [];
+      kpiProcent = sistaPeriod?.kpiProcent ?? 0;
+    } else {
+      days.forEach(d => {
+        if (d.passTyp !== "annan") { totalTB += (d.tb ?? 0); säljDagar++; }
+      });
+      const snittTB = säljDagar > 0 ? totalTB / säljDagar : 0;
+      aktivStege = [...monthStege].reverse().find(s => snittTB >= s.snitt) ?? monthStege[0] ?? { procent: 0 };
+      nästaStege = monthStege.find(s => s.snitt > snittTB);
+      kpiResults = kpiMål.filter(k => k.aktiv !== false).map(kpi => {
+        const säljPass = days.filter(d => d.passTyp !== "annan");
+        const vals = säljPass.map(d => d.tjänster?.[kpi.id] ?? 0);
+        const snitt = vals.length > 0 ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
+        const nådd = snitt >= kpi.mål;
+        return { ...kpi, snitt, nådd };
+      });
+      kpiProcent = kpiResults.filter(k => k.nådd).reduce((s,k) => s + k.procent, 0);
+      tbProv = totalTB * (aktivStege.procent + kpiProcent) / 100;
+    }
+
+    const snittTB = säljDagar > 0 ? totalTB / säljDagar : 0;
+    const provTotal  = tbProv + skottTotal + bonusTotal;
     const brutto   = baseLön + obLön + provTotal;
     const netto    = brutto * (1 - settings.skatt / 100);
     const nettoSem = netto * 1.12;
     return { baseLön, obLön, tbProv, skottTotal, bonusTotal, provTotal, brutto, netto, nettoSem,
              totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual,
-             kpiResults, kpiProcent };
-  }, [days, settings, monthStege, mData.manualTB, mData.kpiMål]);
+             kpiResults, kpiProcent, periodSummaries };
+  }, [days, settings, monthStege, mData.manualTB, mData.kpiMål, perioder]);
 
   // ── Historik ─────────────────────────────────────────────────────────────
   const historyMonths = useMemo(() => {
@@ -351,8 +439,8 @@ export default function LöneKollen() {
           {/* ════════════════ MÅNADSVY ════════════════ */}
           {tab === "mån" && (<>
 
-            {/* Stege-banner om ingen stege är satt för månaden */}
-            {!mData.tbStege && (
+            {/* Stege-banner */}
+            {!mData.tbStege && !mData.perioder && (
               <div style={{
                 background: "#1a1000", border: "1px solid #f5a62355",
                 borderRadius: 14, padding: "14px 16px", marginBottom: 14,
@@ -379,7 +467,7 @@ export default function LöneKollen() {
               </div>
             )}
 
-            {mData.tbStege && (
+            {(mData.tbStege || mData.perioder) && (
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
                 <button onClick={() => setKodModalOpen(true)} style={{
                   background: "transparent", border: `1px solid ${N}`,
@@ -390,7 +478,70 @@ export default function LöneKollen() {
                   background: "transparent", border: `1px solid ${N}`,
                   borderRadius: 8, color: "#5577aa", fontSize: 12,
                   padding: "5px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                }}>✏️ Ändra stege</button>
+                }}>✏️ {mData.perioder ? "Ändra perioder" : "Ändra stege"}</button>
+              </div>
+            )}
+
+            {/* Period-TB-kort (visas när perioder finns) */}
+            {summary.periodSummaries && (
+              <div style={{ marginBottom: 14 }}>
+                {summary.periodSummaries.map((p, pi) => {
+                  const färg = pi === 0 ? "#5577aa" : "#f5a623";
+                  const snittTB = p.säljDagar > 0 ? p.totalTB / p.säljDagar : 0;
+                  return (
+                    <div key={p.id} style={{
+                      background: NC, border: `1px solid ${färg}55`,
+                      borderRadius: 14, padding: "14px 16px", marginBottom: 10,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div>
+                          <div style={{ color: färg, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                            {p.namn || `Period ${pi + 1}`}
+                          </div>
+                          <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
+                            {p.startDatum?.slice(5).replace("-","/")} – {p.slutDatum?.slice(5).replace("-","/")} · {p.säljDagar} pass
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ color: p.specialAktiverad ? "#f5a623" : G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 22 }}>
+                            {fmt(p.tbProv)}
+                          </div>
+                          <div style={{ color: "#5577aa", fontSize: 11 }}>provision</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Total TB</div>
+                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>{Math.round(p.totalTB).toLocaleString("sv-SE")} kr</div>
+                        </div>
+                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Snitt/dag</div>
+                          <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>{Math.round(snittTB).toLocaleString("sv-SE")} kr</div>
+                        </div>
+                        <div style={{ flex: 1, background: ND, borderRadius: 8, padding: "8px 10px" }}>
+                          <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Serie</div>
+                          <div style={{ color: p.specialAktiverad ? "#f5a623" : G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 15 }}>
+                            {p.specialAktiverad ? "💎 Special" : `${(p.aktivStege?.procent ?? 0) + (p.kpiProcent ?? 0)}%`}
+                          </div>
+                        </div>
+                      </div>
+                      {p.specialAktiverad && (
+                        <div style={{ marginTop: 8, background: "#1a1200", border: "1px solid #f5a62344", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#f5a623" }}>
+                          🏆 Specialregel aktiv: {p.specialRegel?.snittProcent ?? 7}% på hela TB + {p.specialRegel?.överskottProcent ?? 10}% på överskott
+                        </div>
+                      )}
+                      {p.kpiResults?.filter(k => k.nådd).length > 0 && !p.specialAktiverad && (
+                        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {p.kpiResults.filter(k => k.nådd).map(k => (
+                            <div key={k.id} style={{ background: `${G}20`, border: `1px solid ${GD}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, color: G }}>
+                              ✅ {k.namn} +{k.procent}%
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -713,11 +864,9 @@ export default function LöneKollen() {
 
             {[...days].map((d, i) => ({ ...d, _idx: i }))
               .sort((a, b) => {
-                // Datum satt → sortera på datum (nyaste först)
                 if (a.datum && b.datum) return b.datum.localeCompare(a.datum);
-                if (a.datum && !b.datum) return -1; // datum alltid före odaterade
+                if (a.datum && !b.datum) return -1;
                 if (!a.datum && b.datum) return 1;
-                // Inget datum → registreringsordning (senaste först)
                 const ar = a.registrerad ?? a._idx;
                 const br = b.registrerad ?? b._idx;
                 return br - ar;
@@ -783,7 +932,6 @@ export default function LöneKollen() {
 
           {/* ════════════════ GNISTAN ════════════════ */}
           {tab === "gnistan" && (() => {
-            // ── Gemensamma beräkningar ───────────────────────────────────
             const sparkBreak    = getBreakMin(sparkDagTyp);
             const clampedNow    = Math.min(Math.max(nowMin, sparkStart), sparkEnd);
             const elapsed       = Math.max(0, clampedNow - sparkStart);
@@ -802,7 +950,6 @@ export default function LöneKollen() {
             const isWorking     = nowMin >= sparkStart && nowMin < sparkEnd;
             const isAfter       = nowMin >= sparkEnd;
 
-            // ── TB-provision beräkning ───────────────────────────────────
             const todayTB       = parseFloat(sparkTB) || 0;
             const säljDays      = days.filter(d => d.passTyp !== "annan");
             const befintligTB   = säljDays.reduce((s,d) => s + (d.tb ?? 0), 0);
@@ -818,29 +965,24 @@ export default function LöneKollen() {
             const gammalProv    = befintligTB * (gammalTier.procent / 100);
             const tbBidrag      = nyProv - gammalProv;
 
-            // ── Tempo & mål-beräkningar ──────────────────────────────────
             const curTotalTB    = summary.totalTB;
             const curSäljDagar  = summary.säljDagar;
             const curSnitt      = summary.snittTB;
             const nästaStege_   = summary.nästaStege;
             const aktivStege_   = summary.aktivStege;
 
-            // Vad behövs per pass för nästa stege?
             const totalPassKvar = Math.max(1, passKvar);
             const neededSnittNästa = nästaStege_?.snitt ?? 0;
             const neededTBNästa  = Math.max(0, neededSnittNästa * (curSäljDagar + totalPassKvar) - curTotalTB);
             const neededPerPassNästa = neededTBNästa / totalPassKvar;
 
-            // Hur mycket kan snittet sjunka? (buffert till nedre stege)
             const lowerStege    = [...stege].reverse().find(s => s.snitt < aktivStege_?.snitt);
             const bufferPerPass = lowerStege
               ? ((curSnitt - lowerStege.snitt) * curSäljDagar) / Math.max(1, curSäljDagar)
               : null;
 
-            // Bästa pass
             const bestPass      = [...säljDays].sort((a,b) => (b.tb??0) - (a.tb??0))[0];
 
-            // Streak — antal pass i rad från slutet med TB >= dagsmål
             const sortedPasses  = [...säljDays];
             let streak = 0;
             for (let i = sortedPasses.length - 1; i >= 0; i--) {
@@ -849,7 +991,6 @@ export default function LöneKollen() {
             }
             const passedGoal    = säljDays.filter(d => (d.tb ?? 0) >= dagsmål).length;
 
-            // Vad om... scenario
             const vadomVal      = parseFloat(vadomTB) || 0;
             const vadomNyTotal  = curTotalTB + vadomVal;
             const vadomNySälj   = curSäljDagar + (vadomVal > 0 ? 1 : 0);
@@ -869,7 +1010,6 @@ export default function LöneKollen() {
             ];
             const tabIndex = subTabs.findIndex(([k]) => k === sparkTab);
 
-            // Bästa dag-beräkningar
             const säljPassar = days.filter(d => d.passTyp !== "annan");
             const bästaTB    = [...säljPassar].sort((a,b) => (b.tb??0)-(a.tb??0))[0];
             const bästaTjänster = mData.kpiMål?.length > 0
@@ -899,7 +1039,7 @@ export default function LöneKollen() {
                   setSwipeStartX(null);
                 }}
               >
-                {/* Sub-tab bar med sliding indicator */}
+                {/* Sub-tab bar */}
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, scrollbarWidth: "none", msOverflowStyle: "none" }}>
                     {subTabs.map(([key, label]) => (
@@ -912,7 +1052,6 @@ export default function LöneKollen() {
                       }}>{label}</button>
                     ))}
                   </div>
-                  {/* Dots indicator */}
                   <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 4 }}>
                     {subTabs.map(([key]) => (
                       <div key={key} style={{
@@ -927,7 +1066,6 @@ export default function LöneKollen() {
                 {/* ── LIVE ── */}
                 {sparkTab === "live" && (
                   <div>
-                    {/* Ledig / På jobbet toggle */}
                     <div style={{ display:"flex", gap:8, marginBottom:20 }}>
                       {[["ledig","😴 Ledig"],["jobb","💼 På jobbet"]].map(([key,label]) => (
                         <button key={key} onClick={() => setJobbläge(key)} style={{
@@ -949,7 +1087,6 @@ export default function LöneKollen() {
                                         : { emoji:"🥉", label:"Brons", color:"#cd7f32", bg:"#1a0e00" };
                       return (
                         <div>
-                          {/* Medal + serie-kort */}
                           <div style={{ background: medal.bg, border:`2px solid ${medal.color}44`, borderRadius:20, padding:"24px 20px", marginBottom:14, textAlign:"center" }}>
                             <div style={{ fontSize:52, marginBottom:8 }}>{medal.emoji}</div>
                             <div style={{ color: medal.color, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:28, letterSpacing:1 }}>{medal.label}-serie</div>
@@ -957,7 +1094,6 @@ export default function LöneKollen() {
                             <div style={{ color:"#5577aa", fontSize:13, marginTop:8 }}>på {curSäljDagar} säljdagar · snitt {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</div>
                           </div>
 
-                          {/* Nästa stege */}
                           {nästaStege_ ? (
                             <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                               <div style={{ color:"#5577aa", fontSize:11, fontWeight:600, textTransform:"uppercase", letterSpacing:2, marginBottom:10 }}>
@@ -983,7 +1119,6 @@ export default function LöneKollen() {
                             </div>
                           )}
 
-                          {/* Total TB & provision */}
                           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                             {[
                               ["Total TB", Math.round(curTotalTB).toLocaleString("sv-SE") + " kr"],
@@ -1002,7 +1137,6 @@ export default function LöneKollen() {
                     {/* ── PÅ JOBBET-VY ── */}
                     {jobbläge === "jobb" && (
                       <div>
-                        {/* Pass-inställningar */}
                         <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
                           <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Dagens pass</div>
                           <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -1042,7 +1176,6 @@ export default function LöneKollen() {
                           </div>
                         </div>
 
-                        {/* TB för dagen */}
                         <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
                           <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>📊 Dagens TB (kr)</div>
                           <input type="number" value={sparkTB} step={500} min={0} placeholder="Ange ditt TB..."
@@ -1082,7 +1215,6 @@ export default function LöneKollen() {
                           )}
                         </div>
 
-                        {/* Live-räknare */}
                         <div style={{ background: isWorking ? "#0d1f00" : NC, border:`2px solid ${isWorking ? "#f5a623" : "#334"}`, borderRadius:20, padding:"20px 18px", marginBottom:14, textAlign:"center" }}>
                           {isAfter ? (<>
                             <div style={{ fontSize:32, marginBottom:6 }}>✅</div>
@@ -1114,7 +1246,6 @@ export default function LöneKollen() {
                           </>)}
                         </div>
 
-                        {/* Gå hem tidigt */}
                         <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
                           <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:14 }}>💸 Vad förlorar du på att gå hem tidigt?</div>
                           <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:16 }}>
@@ -1144,7 +1275,7 @@ export default function LöneKollen() {
                   </div>
                 )}
 
-                                {/* ── MÅL ── */}
+                {/* ── MÅL ── */}
                 {sparkTab === "mål" && (
                   <div>
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
@@ -1173,7 +1304,6 @@ export default function LöneKollen() {
                           <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>TB för att nå {nästaStege_.procent}%-serien</div>
                         </div>
 
-                        {/* Extra i fickan */}
                         {curTotalTB > 0 && (() => {
                           const extraKr      = curTotalTB * (nästaStege_.procent - aktivStege_.procent) / 100;
                           const extraNetto   = extraKr * (1 - settings.skatt / 100);
@@ -1183,7 +1313,6 @@ export default function LöneKollen() {
                           return (
                             <div style={{ background:"#0d1f00", border:"2px solid #f5a62366", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
                               <div style={{ color:"#f5a62399", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>💰 Värt att kämpa för</div>
-
                               <div style={{ color:"#5577aa", fontSize:11, marginBottom:6 }}>På redan tjänade {Math.round(curTotalTB).toLocaleString("sv-SE")} kr TB</div>
                               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
                                 <div style={{ background:"#0a0a00", borderRadius:10, padding:"10px 12px" }}>
@@ -1195,7 +1324,6 @@ export default function LöneKollen() {
                                   <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:20 }}>+{fmt(extraNetto)}</div>
                                 </div>
                               </div>
-
                               {passKvar > 0 && (<>
                                 <div style={{ borderTop:"1px solid #f5a62222", paddingTop:10, marginBottom:6 }}>
                                   <div style={{ color:"#5577aa", fontSize:11 }}>Hela månaden inkl {passKvar} pass kvar</div>
@@ -1215,7 +1343,6 @@ export default function LöneKollen() {
                           );
                         })()}
 
-                        {/* Progress bar mot nästa stege */}
                         <div style={{ marginBottom:8 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                             <span style={{ color:"#5577aa", fontSize:11 }}>Nuläge: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span>
@@ -1237,7 +1364,6 @@ export default function LöneKollen() {
                       )}
                     </div>
 
-                    {/* Dagsmål */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>🔥 Ditt dagsmål i TB (kr)</div>
                       <input type="number" value={dagsmål} step={1000} min={0}
@@ -1252,7 +1378,6 @@ export default function LöneKollen() {
                 {/* ── BÄSTA DAG ── */}
                 {sparkTab === "bästa" && (
                   <div>
-                    {/* Bästa lönedagen */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>💰 Bästa lönedagen</div>
                       {bästaLön ? (() => {
@@ -1282,7 +1407,6 @@ export default function LöneKollen() {
                       })() : <div style={{ color:"#4466aa", textAlign:"center", padding:"12px 0" }}>Inga pass registrerade</div>}
                     </div>
 
-                    {/* Högst TB */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:G, fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>📊 Högst TB</div>
                       {bästaTB ? (
@@ -1302,7 +1426,6 @@ export default function LöneKollen() {
                       ) : <div style={{ color:"#4466aa", textAlign:"center", padding:"12px 0" }}>Inga säljpass registrerade</div>}
                     </div>
 
-                    {/* Flest tjänster */}
                     {bästaTjänster && (
                       <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
                         <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🎯 Flest tjänster</div>
@@ -1338,37 +1461,27 @@ export default function LöneKollen() {
                   const topTier      = [...stege].sort((a,b) => b.snitt - a.snitt)[0] ?? { snitt: 0, procent: 0 };
                   const kpiP         = summary?.kpiProcent ?? 0;
                   const totalProcent = (aktivStege_?.procent ?? 0) + kpiP;
-
-                  // Beräkna projicerad timlön för resterande pass (använd sparkDagTyp-standard)
                   const lönPerPass   = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön);
-
-                  // 1. Håller du snittet → projicerad månadslön
                   const projTB       = curTotalTB + passKvar * curSnitt;
                   const projProv     = projTB * totalProcent / 100;
                   const projLön      = days.reduce((s, d) => s + calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön), 0)
                                      + passKvar * lönPerPass;
                   const projBrutto   = projLön + projProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
                   const projNetto    = projBrutto * (1 - settings.skatt / 100);
-
-                  // 2. Lägsta acceptabla TB för att hålla nuvarande tier
                   const minTBPerPass = curSäljDagar > 0 && passKvar > 0
                     ? Math.max(0, (aktivStege_?.snitt ?? 0) * (curSäljDagar + passKvar) - curTotalTB) / passKvar
                     : 0;
-
-                  // 3. Drömscenario
                   const drömVal      = parseFloat(drömSnitt) || 0;
                   const drömTB       = curTotalTB + passKvar * drömVal;
                   const drömTier     = [...stege].reverse().find(s => (drömTB/(curSäljDagar+passKvar||1)) >= s.snitt) ?? stege[0] ?? { procent: 0 };
                   const drömProv     = drömTB * (drömTier.procent + kpiP) / 100;
                   const drömBrutto   = projLön + drömProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
                   const drömNetto    = drömBrutto * (1 - settings.skatt / 100);
-
-                  // 4. Månadsmax
                   const maxTBPerPass = topTier.snitt;
                   const maxTB        = curTotalTB + passKvar * maxTBPerPass;
                   const maxProv      = maxTB * (topTier.procent + kpiP) / 100;
-                  const maxBrutto    = projLön + maxProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
-                  const maxNetto     = maxBrutto * (1 - settings.skatt / 100);
+                  const maxBrutto_   = projLön + maxProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const maxNetto_    = maxBrutto_ * (1 - settings.skatt / 100);
 
                   function ProjCard({ title, emoji, brutto, netto, extra, color }) {
                     return (
@@ -1393,7 +1506,6 @@ export default function LöneKollen() {
 
                   return (
                     <div>
-                      {/* Nuläge */}
                       <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                         {[
                           ["Snitt nu", `${Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag`],
@@ -1407,7 +1519,6 @@ export default function LöneKollen() {
                         ))}
                       </div>
 
-                      {/* 1. Håller snittet */}
                       <ProjCard
                         title={`Håller du ${Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag`}
                         emoji="📈"
@@ -1417,7 +1528,6 @@ export default function LöneKollen() {
                         color={G}
                       />
 
-                      {/* 2. Lägsta acceptabla */}
                       <div style={{ background: NC, border: `1px solid #f5a62344`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
                         <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                           ⚠️ Minimum för att hålla {aktivStege_?.procent}%-serien
@@ -1441,7 +1551,6 @@ export default function LöneKollen() {
                         )}
                       </div>
 
-                      {/* 3. Drömscenario */}
                       <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
                         <div style={{ color: "#c8deff", fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                           🚀 Kör hårt — vad händer om du gör...
@@ -1473,12 +1582,11 @@ export default function LöneKollen() {
                         )}
                       </div>
 
-                      {/* 4. Månadsmax */}
                       <ProjCard
                         title={`Månadsmax (${topTier.snitt.toLocaleString("sv-SE")} kr/pass)`}
                         emoji="👑"
-                        brutto={maxBrutto}
-                        netto={maxNetto}
+                        brutto={maxBrutto_}
+                        netto={maxNetto_}
                         extra={`${topTier.procent + kpiP}% provision · TB ${Math.round(maxTB).toLocaleString("sv-SE")} kr`}
                         color="#f5a623"
                       />
@@ -1489,7 +1597,6 @@ export default function LöneKollen() {
                 {/* ── STATS ── */}
                 {sparkTab === "stats" && (
                   <div>
-                    {/* Bästa pass */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🏆 Bästa passet denna månad</div>
                       {bestPass ? (<>
@@ -1521,7 +1628,6 @@ export default function LöneKollen() {
                       )}
                     </div>
 
-                    {/* Streak */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🔥 Streak — dagsmål {dagsmål.toLocaleString("sv-SE")} kr TB</div>
                       <div style={{ textAlign:"center", marginBottom:14 }}>
@@ -1547,7 +1653,6 @@ export default function LöneKollen() {
 
                 {/* ── FAKTA ── */}
                 {sparkTab === "fakta" && (() => {
-                  // Månadsbaserade beräkningar
                   const totTimmar = days.reduce((s, d) => {
                     const brk = getBreakMin(d.dagTyp);
                     return s + ((d.endMin - d.startMin) - brk) / 60;
@@ -1583,7 +1688,7 @@ export default function LöneKollen() {
             );
           })()}
 
-                    {/* ════════════════ HISTORIK ════════════════ */}
+          {/* ════════════════ HISTORIK ════════════════ */}
           {tab === "historik" && (<>
             <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
               Senaste 6 månader
@@ -1611,7 +1716,6 @@ export default function LöneKollen() {
                     <div style={{ color: "#5577aa", fontSize: 11 }}>brutto {fmt(h.brutto)}</div>
                   </div>
                 </div>
-                {/* Bar */}
                 <div style={{ height: 6, background: N, borderRadius: 3, overflow: "hidden" }}>
                   <div style={{
                     height: "100%", borderRadius: 3,
@@ -1631,7 +1735,6 @@ export default function LöneKollen() {
         </div>
       </div>
 
-      {/* ════════════════ LÄGG TILL/REDIGERA-MODAL ════════════════ */}
       {celebration && (
         <CelebrationModal
           celebration={celebration}
@@ -1669,11 +1772,18 @@ export default function LöneKollen() {
           initialStege={mData.tbStege ?? settings.tbStege ?? []}
           initialKPI={mData.kpiMål ?? []}
           initialBonus={mData.bonusAktiv ?? false}
+          initialPerioder={mData.perioder ?? null}
           month={month}
           onSave={(stege, kpiMål, bonusAktiv) => {
             saveMonthStege(stege);
             saveMonthKPI(kpiMål);
             mutateMonth(cur => ({ ...cur, bonusAktiv }));
+            setStegeOpen(false);
+          }}
+          onSavePerioder={(nyaPerioder) => {
+            saveMonthPerioder(nyaPerioder);
+            // Ta bort gamla tbStege/kpiMål när perioder används
+            mutateMonth(cur => ({ ...cur, tbStege: undefined, kpiMål: undefined }));
             setStegeOpen(false);
           }}
           onCancel={() => setStegeOpen(false)}
@@ -1690,7 +1800,6 @@ export default function LöneKollen() {
             saveDay(day);
             setAddOpen(false);
             setEditId(null);
-            // Beräkna firande-nivå (endast juni-aug 2026)
             const now = new Date();
             const aktiveraFirande = now.getFullYear() === 2026 && now.getMonth() >= 5 && now.getMonth() <= 7;
             const topSnitt = monthStege.length > 0 ? Math.max(...monthStege.map(s => s.snitt)) : 0;
@@ -1729,29 +1838,20 @@ export default function LöneKollen() {
   );
 }
 
+// ─── Provisions-kod encode/decode ─────────────────────────────────────────
 function encodeProvision(stege, kpiMål, bonusAktiv) {
-  try {
-    const s = stege.map(x => `${x.snitt}:${x.procent}`).join(',');
-    const k = (kpiMål ?? []).filter(x => x.aktiv !== false)
-      .map(x => `${encodeURIComponent(x.namn)}:${x.mål}:${x.procent}`).join('|');
-    const raw = `${s};${k};${bonusAktiv ? 1 : 0}`;
-    return btoa(unescape(encodeURIComponent(raw)));
-  } catch { return ""; }
+  const data = { s: stege.map(s => [s.snitt, s.procent]), k: kpiMål.map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]), b: bonusAktiv ? 1 : 0 };
+  try { return "LK-" + btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
+  catch { return ""; }
 }
 
-function decodeProvision(code) {
+function decodeProvision(kod) {
   try {
-    const raw = decodeURIComponent(escape(atob(code.trim())));
-    const [sPart, kPart, bPart] = raw.split(';');
-    const stege = sPart.split(',').map(x => {
-      const [snitt, procent] = x.split(':').map(Number);
-      return { snitt, procent };
-    }).filter(s => !isNaN(s.snitt));
-    const kpiMål = kPart ? kPart.split('|').filter(Boolean).map((x, i) => {
-      const [namn, mål, procent] = x.split(':');
-      return { id: `kpi-import-${i}`, namn: decodeURIComponent(namn), mål: Number(mål), procent: Number(procent), aktiv: true };
-    }) : [];
-    const bonusAktiv = bPart === '1';
+    if (!kod.startsWith("LK-")) return null;
+    const data = JSON.parse(decodeURIComponent(escape(atob(kod.slice(3)))));
+    const stege = (data.s ?? []).map(([snitt, procent]) => ({ snitt, procent }));
+    const kpiMål = (data.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 }));
+    const bonusAktiv = data.b === 1;
     return { stege, kpiMål, bonusAktiv };
   } catch { return null; }
 }
@@ -1981,16 +2081,15 @@ function KodModal({ onApply, onClose }) {
 
 // ─── Planera-modal (kalender) ────────────────────────────────────────────
 function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
-  // Stöd både gammal (object) och ny (array) format
   const initArray = Array.isArray(initialPlan) ? initialPlan : [];
   const [plan, setPlan]         = useState(initArray);
-  const [editDay, setEditDay]   = useState(null); // { datum, dagTyp, startMin, endMin }
+  const [editDay, setEditDay]   = useState(null);
   const [holdTimer, setHoldTimer] = useState(null);
 
   const [year, mo] = month.split("-").map(Number);
   const daysInMonth = new Date(year, mo, 0).getDate();
-  const firstDow    = new Date(year, mo - 1, 1).getDay(); // 0=sön
-  const startOffset = (firstDow + 6) % 7; // måndag=0
+  const firstDow    = new Date(year, mo - 1, 1).getDay();
+  const startOffset = (firstDow + 6) % 7;
 
   function dateStr(day) {
     return `${year}-${String(mo).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
@@ -2040,14 +2139,12 @@ function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
 
-        {/* Veckodag-headers */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
           {veckodag.map(d => (
             <div key={d} style={{ color: d === "Lör" ? "#f5a623" : d === "Sön" ? "#e05c5c" : "#5577aa", fontSize: 10, textAlign: "center", fontWeight: 600 }}>{d}</div>
           ))}
         </div>
 
-        {/* Kalender-grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 16 }}>
           {Array.from({ length: startOffset }).map((_, i) => <div key={`e${i}`} />)}
           {Array.from({ length: daysInMonth }, (_, i) => {
@@ -2080,7 +2177,6 @@ function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
           })}
         </div>
 
-        {/* Legenden */}
         <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           {[["💼", "#5bc500", "Vardag"], ["🛒", "#f5a623", "Lördag"], ["☀️", "#e05c5c", "Sön/Röd"]].map(([e,c,l]) => (
             <div key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -2090,7 +2186,6 @@ function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
           ))}
         </div>
 
-        {/* Sammanfattning */}
         <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "10px 14px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: "#5577aa", fontSize: 13 }}>Totalt planerade pass</span>
           <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 20 }}>{totalt}</span>
@@ -2103,7 +2198,6 @@ function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
         }}>Spara</button>
       </div>
 
-      {/* Tidsjusteringsmodal vid hålltryckning */}
       {editDay && (
         <div style={{ position: "absolute", inset: 0, background: "#000c", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, padding: 20 }}>
           <div style={{ background: "#001a50", borderRadius: 20, padding: 20, width: "100%" }}>
@@ -2141,31 +2235,167 @@ function PlaneraModal({ initialPlan, month, settings, onSave, onCancel }) {
 }
 
 // ─── Stege-modal ──────────────────────────────────────────────────────────
-// ─── Provisions-kod encode/decode ─────────────────────────────────────────
-function encodeProvision(stege, kpiMål, bonusAktiv) {
-  const data = { s: stege.map(s => [s.snitt, s.procent]), k: kpiMål.map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]), b: bonusAktiv ? 1 : 0 };
-  try { return "LK-" + btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
-  catch { return ""; }
+function PeriodStegeEditor({ period, onChange }) {
+  const stege   = period.tbStege ?? [];
+  const kpiMål  = period.kpiMål ?? [];
+  const special = period.specialRegel ?? { aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 };
+
+  function updateSteg(i, field, val) {
+    const upd = stege.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s);
+    onChange({ ...period, tbStege: upd });
+  }
+  function updateKPI(id, field, val) {
+    const upd = kpiMål.map(k => k.id === id ? { ...k, [field]: field === "procent" || field === "mål" ? parseFloat(val) || 0 : val } : k);
+    onChange({ ...period, kpiMål: upd });
+  }
+  function updateSpecial(field, val) {
+    onChange({ ...period, specialRegel: { ...special, [field]: val } });
+  }
+
+  return (
+    <div>
+      {/* Datumintervall */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        {[["Startdatum", "startDatum"], ["Slutdatum", "slutDatum"]].map(([lbl, key]) => (
+          <div key={key}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{lbl}</div>
+            <input type="date" value={period[key] ?? ""} onChange={e => onChange({ ...period, [key]: e.target.value })}
+              style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 13, fontFamily: "Outfit, sans-serif", colorScheme: "dark" }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* TB-stege */}
+      <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>TB-stege</div>
+      {stege.map((s, i) => (
+        <div key={i} style={{ background: ND, border: `1px solid ${N}`, borderRadius: 10, padding: "10px 12px", marginBottom: 6, display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Snitt från (kr/dag)</div>
+            <input type="number" value={s.snitt} min={0} step={500} onChange={e => updateSteg(i, "snitt", e.target.value)}
+              style={{ width: "100%", background: NC, border: `1px solid ${N}`, color: G, borderRadius: 6, padding: "7px 8px", fontSize: 15, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>TB-procent (%)</div>
+            <input type="number" value={s.procent} min={0} step={0.5} onChange={e => updateSteg(i, "procent", e.target.value)}
+              style={{ width: "100%", background: NC, border: `1px solid ${N}`, color: G, borderRadius: 6, padding: "7px 8px", fontSize: 15, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+            />
+          </div>
+          {i > 0 && (
+            <button onClick={() => onChange({ ...period, tbStege: stege.filter((_, j) => j !== i) })}
+              style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 6, padding: "6px 8px", cursor: "pointer", fontSize: 14, marginTop: 14 }}>✕</button>
+          )}
+        </div>
+      ))}
+      <button onClick={() => onChange({ ...period, tbStege: [...stege, { snitt: 0, procent: 0 }] })}
+        style={{ width: "100%", padding: "8px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 8, cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif", marginBottom: 16 }}>
+        + Lägg till steg
+      </button>
+
+      {/* KPI */}
+      <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>KPI</div>
+      {kpiMål.map(kpi => (
+        <div key={kpi.id} style={{ background: ND, border: `1px solid #f5a62333`, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+            <input value={kpi.namn} placeholder="KPI-namn" onChange={e => updateKPI(kpi.id, "namn", e.target.value)}
+              style={{ flex: 1, background: NC, border: `1px solid ${N}`, color: "#fff", borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: "Outfit, sans-serif" }}
+            />
+            <button onClick={() => onChange({ ...period, kpiMål: kpiMål.filter(k => k.id !== kpi.id) })}
+              style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 14 }}>✕</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Mål (st/dag)</div>
+              <input type="number" value={kpi.mål} min={0} step={0.5} onChange={e => updateKPI(kpi.id, "mål", e.target.value)}
+                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 8px", fontSize: 14, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div>
+              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Extra %</div>
+              <input type="number" value={kpi.procent} min={0} step={0.5} onChange={e => updateKPI(kpi.id, "procent", e.target.value)}
+                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 8px", fontSize: 14, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+      <button onClick={() => onChange({ ...period, kpiMål: [...kpiMål, { id: `kpi-${Date.now()}`, namn: "", mål: 3, procent: 1, aktiv: true }] })}
+        style={{ width: "100%", padding: "8px 0", background: "transparent", border: "1px solid #f5a62344", color: "#f5a623", borderRadius: 8, cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif", marginBottom: 16 }}>
+        + Lägg till KPI
+      </button>
+
+      {/* Specialregel */}
+      <div style={{ background: special.aktiv ? "#1a1200" : ND, border: `1px solid ${special.aktiv ? "#f5a62355" : N}`, borderRadius: 10, padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: special.aktiv ? 12 : 0 }}>
+          <div>
+            <div style={{ color: special.aktiv ? "#f5a623" : "#5577aa", fontWeight: 600, fontSize: 13 }}>💎 Specialregel (t.ex. Diamant-tävling)</div>
+            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>Aktivera om perioden har extra regler vid högt snitt</div>
+          </div>
+          <div onClick={() => updateSpecial("aktiv", !special.aktiv)} style={{
+            width: 42, height: 24, borderRadius: 12, flexShrink: 0,
+            background: special.aktiv ? "#f5a623" : "#334",
+            position: "relative", cursor: "pointer", transition: "background .2s",
+          }}>
+            <div style={{ position: "absolute", top: 3, left: special.aktiv ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+          </div>
+        </div>
+        {special.aktiv && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Snittgräns (kr/dag)</div>
+              <input type="number" value={special.snittGräns ?? 15000} step={1000} onChange={e => updateSpecial("snittGräns", parseFloat(e.target.value)||0)}
+                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div>
+              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>% hela TB</div>
+              <input type="number" value={special.snittProcent ?? 7} step={0.5} onChange={e => updateSpecial("snittProcent", parseFloat(e.target.value)||0)}
+                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div>
+              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>% överskott</div>
+              <input type="number" value={special.överskottProcent ?? 10} step={0.5} onChange={e => updateSpecial("överskottProcent", parseFloat(e.target.value)||0)}
+                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function decodeProvision(kod) {
-  try {
-    if (!kod.startsWith("LK-")) return null;
-    const data = JSON.parse(decodeURIComponent(escape(atob(kod.slice(3)))));
-    const stege = (data.s ?? []).map(([snitt, procent]) => ({ snitt, procent }));
-    const kpiMål = (data.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 }));
-    const bonusAktiv = data.b === 1;
-    return { stege, kpiMål, bonusAktiv };
-  } catch { return null; }
-}
-
-function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onCancel }) {
+function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, month, onSave, onSavePerioder, onCancel }) {
+  const [läge, setLäge]             = useState(initialPerioder ? "perioder" : "enkel");
   const [stege, setStege]           = useState(initialStege.length > 0 ? initialStege : [{ snitt: 0, procent: 3 }]);
   const [kpiMål, setKpiMål]         = useState(initialKPI ?? []);
   const [bonusAktiv, setBonusAktiv] = useState(initialBonus ?? false);
   const [kopierad, setKopierad]     = useState(false);
   const [kodInput, setKodInput]     = useState("");
   const [kodFel, setKodFel]         = useState(false);
+  const [aktivPeriod, setAktivPeriod] = useState(0);
+
+  const defaultPerioder = initialPerioder ?? [
+    {
+      id: "p1", namn: "Period 1",
+      startDatum: `${month}-01`, slutDatum: `${month}-18`,
+      tbStege: [{ snitt: 0, procent: 2 }, { snitt: 6000, procent: 3 }, { snitt: 8000, procent: 6 }],
+      kpiMål: [{ id: "kpi-tjänster", namn: "Tjänster", mål: 3, procent: 1, aktiv: true }],
+      bonusAktiv: false,
+      specialRegel: { aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 },
+    },
+    {
+      id: "p2", namn: "Period 2",
+      startDatum: `${month}-21`, slutDatum: `${month}-30`,
+      tbStege: [{ snitt: 0, procent: 2 }, { snitt: 5000, procent: 3 }, { snitt: 7000, procent: 4 }, { snitt: 9000, procent: 5 }, { snitt: 12000, procent: 7 }],
+      kpiMål: [],
+      bonusAktiv: false,
+      specialRegel: { aktiv: true, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 },
+    },
+  ];
+  const [perioder, setPerioder] = useState(defaultPerioder);
 
   function kopiera() {
     const kod = encodeProvision(stege, kpiMål, bonusAktiv);
@@ -2183,8 +2413,7 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
     setBonusAktiv(result.bonusAktiv);
     setKodInput("");
   }
-    setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
-  }
+
   function updateSteg(i, field, val) {
     setStege(prev => prev.map((s, j) => j === i ? { ...s, [field]: parseFloat(val) || 0 } : s));
   }
@@ -2192,146 +2421,215 @@ function StegeModal({ initialStege, initialKPI, initialBonus, month, onSave, onC
     setKpiMål(prev => prev.map(k => k.id === id ? { ...k, [field]: field === "procent" || field === "mål" ? parseFloat(val) || 0 : val } : k));
   }
 
+  const periodFärger = ["#5577aa", "#f5a623", G, "#e05c5c"];
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 100 }}>
       <div style={{
         width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0",
         padding: "20px 18px 40px", animation: "slideUp .25s ease",
-        maxHeight: "90vh", overflowY: "auto",
+        maxHeight: "92vh", overflowY: "auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provisionsstege & KPI</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>Provision & stege</div>
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#5577aa", fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
         <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 16, textTransform: "capitalize" }}>
           {new Date(month + "-01").toLocaleString("sv-SE", { month: "long", year: "numeric" })}
         </div>
 
-        {/* Ange delningskod */}
-        <div style={{ background: ND, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
-          <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📥 Ange delningskod</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={kodInput}
-              onChange={e => setKodInput(e.target.value)}
-              placeholder="LK-..."
-              style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontFamily: "Outfit, sans-serif" }}
-            />
-            <button onClick={tillämpKod} style={{
-              background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
-              color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 13,
-              padding: "8px 14px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
-            }}>
-              {kodFel ? "Ogiltig kod" : "Tillämpa"}
-            </button>
-          </div>
+        {/* Läge-växlare: Enkel / Perioder */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          {[["enkel", "📅 Enkel (hel månad)"], ["perioder", "🗓 Perioder"]].map(([key, label]) => (
+            <button key={key} onClick={() => setLäge(key)} style={{
+              flex: 1, padding: "10px 0", border: "none", borderRadius: 10,
+              background: läge === key ? G : NC,
+              color: läge === key ? "#001435" : "#5577aa",
+              fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+            }}>{label}</button>
+          ))}
         </div>
 
-        {/* TB-stege */}
-        <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>TB-stege</div>
-        {stege.map((s, i) => (
-          <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
-              <input type="number" value={s.snitt} min={0} step={500}
-                onChange={e => updateSteg(i, "snitt", e.target.value)}
-                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+        {/* ── ENKEL LÄGE ── */}
+        {läge === "enkel" && (<>
+          <div style={{ background: ND, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
+            <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📥 Ange delningskod</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={kodInput} onChange={e => setKodInput(e.target.value)} placeholder="LK-..."
+                style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontFamily: "Outfit, sans-serif" }}
               />
+              <button onClick={tillämpKod} style={{
+                background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
+                color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 13,
+                padding: "8px 14px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
+              }}>{kodFel ? "Ogiltig kod" : "Tillämpa"}</button>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>TB-procent (%)</div>
-              <input type="number" value={s.procent} min={0} step={0.5}
-                onChange={e => updateSteg(i, "procent", e.target.value)}
-                style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
-              />
-            </div>
-            {i > 0 && (
-              <button onClick={() => setStege(prev => prev.filter((_, j) => j !== i))}
-                style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, marginTop: 18 }}>✕</button>
-            )}
           </div>
-        ))}
-        <button onClick={() => setStege(prev => [...prev, { snitt: 0, procent: 0 }])}
-          style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 24 }}>
-          + Lägg till steg
-        </button>
 
-        {/* KPI */}
-        <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>KPI-provision</div>
-        <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 12 }}>Varje uppnådd KPI adderar sin procent till TB-provisionen.</div>
-        {kpiMål.map(kpi => (
-          <div key={kpi.id} style={{ background: NC, border: `1px solid ${kpi.aktiv !== false ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px", marginBottom: 10 }}>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
-              <input value={kpi.namn} placeholder="Namn (t.ex. Kalibrering)"
-                onChange={e => updateKPI(kpi.id, "namn", e.target.value)}
-                style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 14, fontFamily: "Outfit, sans-serif" }}
-              />
-              <div onClick={() => updateKPI(kpi.id, "aktiv", !(kpi.aktiv !== false))} style={{
-                width: 42, height: 24, borderRadius: 12, flexShrink: 0,
-                background: kpi.aktiv !== false ? "#f5a623" : "#334",
+          <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>TB-stege</div>
+          {stege.map((s, i) => (
+            <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Snitt från (kr/dag)</div>
+                <input type="number" value={s.snitt} min={0} step={500} onChange={e => updateSteg(i, "snitt", e.target.value)}
+                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>TB-procent (%)</div>
+                <input type="number" value={s.procent} min={0} step={0.5} onChange={e => updateSteg(i, "procent", e.target.value)}
+                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                />
+              </div>
+              {i > 0 && (
+                <button onClick={() => setStege(prev => prev.filter((_, j) => j !== i))}
+                  style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, marginTop: 18 }}>✕</button>
+              )}
+            </div>
+          ))}
+          <button onClick={() => setStege(prev => [...prev, { snitt: 0, procent: 0 }])}
+            style={{ width: "100%", padding: "10px 0", background: "transparent", border: `1px solid ${N}`, color: "#5577aa", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 24 }}>
+            + Lägg till steg
+          </button>
+
+          <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>KPI-provision</div>
+          <div style={{ color: "#5577aa", fontSize: 12, marginBottom: 12 }}>Varje uppnådd KPI adderar sin procent till TB-provisionen.</div>
+          {kpiMål.map(kpi => (
+            <div key={kpi.id} style={{ background: NC, border: `1px solid ${kpi.aktiv !== false ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+                <input value={kpi.namn} placeholder="Namn (t.ex. Kalibrering)" onChange={e => updateKPI(kpi.id, "namn", e.target.value)}
+                  style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 14, fontFamily: "Outfit, sans-serif" }}
+                />
+                <div onClick={() => updateKPI(kpi.id, "aktiv", !(kpi.aktiv !== false))} style={{
+                  width: 42, height: 24, borderRadius: 12, flexShrink: 0,
+                  background: kpi.aktiv !== false ? "#f5a623" : "#334",
+                  position: "relative", cursor: "pointer", transition: "background .2s",
+                }}>
+                  <div style={{ position: "absolute", top: 3, left: kpi.aktiv !== false ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+                </div>
+                <button onClick={() => setKpiMål(prev => prev.filter(k => k.id !== kpi.id))}
+                  style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Mål (st/dag snitt)</div>
+                  <input type="number" value={kpi.mål} min={0} step={0.5} onChange={e => updateKPI(kpi.id, "mål", e.target.value)}
+                    style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                  />
+                </div>
+                <div>
+                  <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Extra provision (%)</div>
+                  <input type="number" value={kpi.procent} min={0} step={0.5} onChange={e => updateKPI(kpi.id, "procent", e.target.value)}
+                    style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setKpiMål(prev => [...prev, { id: `kpi-${Date.now()}`, namn: "", mål: 3, procent: 1, aktiv: true }])}
+            style={{ width: "100%", padding: "10px 0", background: "transparent", border: "1px solid #f5a62344", color: "#f5a623", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
+            + Lägg till KPI
+          </button>
+
+          <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>Tävlingsbonus</div>
+          <div style={{ background: NC, border: `1px solid ${bonusAktiv ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Aktiv denna månad</div>
+                <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>Lägger till bonus-fält per pass (0 / 500 / 1 000 kr)</div>
+              </div>
+              <div onClick={() => setBonusAktiv(b => !b)} style={{
+                width: 46, height: 26, borderRadius: 13, flexShrink: 0,
+                background: bonusAktiv ? "#f5a623" : "#334",
                 position: "relative", cursor: "pointer", transition: "background .2s",
               }}>
-                <div style={{ position: "absolute", top: 3, left: kpi.aktiv !== false ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
-              </div>
-              <button onClick={() => setKpiMål(prev => prev.filter(k => k.id !== kpi.id))}
-                style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Mål (st/dag snitt)</div>
-                <input type="number" value={kpi.mål} min={0} step={0.5}
-                  onChange={e => updateKPI(kpi.id, "mål", e.target.value)}
-                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
-                />
-              </div>
-              <div>
-                <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Extra provision (%)</div>
-                <input type="number" value={kpi.procent} min={0} step={0.5}
-                  onChange={e => updateKPI(kpi.id, "procent", e.target.value)}
-                  style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: "#f5a623", borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
-                />
+                <div style={{ position: "absolute", top: 3, left: bonusAktiv ? 22 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
               </div>
             </div>
           </div>
-        ))}
-        <button onClick={() => setKpiMål(prev => [...prev, { id: `kpi-${Date.now()}`, namn: "", mål: 3, procent: 1, aktiv: true }])}
-          style={{ width: "100%", padding: "10px 0", background: "transparent", border: "1px solid #f5a62344", color: "#f5a623", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif", marginBottom: 20 }}>
-          + Lägg till KPI
-        </button>
 
-        {/* Tävlingsbonus */}
-        <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>Tävlingsbonus</div>
-        <div style={{ background: NC, border: `1px solid ${bonusAktiv ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Aktiv denna månad</div>
-              <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>Lägger till bonus-fält per pass (0 / 500 / 1 000 kr)</div>
-            </div>
-            <div onClick={() => setBonusAktiv(b => !b)} style={{
-              width: 46, height: 26, borderRadius: 13, flexShrink: 0,
-              background: bonusAktiv ? "#f5a623" : "#334",
-              position: "relative", cursor: "pointer", transition: "background .2s",
-            }}>
-              <div style={{ position: "absolute", top: 3, left: bonusAktiv ? 22 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+          <button onClick={() => onSave(stege, kpiMål, bonusAktiv)} style={{
+            width: "100%", padding: 16, background: G, border: "none",
+            borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+            cursor: "pointer", fontFamily: "Outfit, sans-serif", marginBottom: 10,
+          }}>Spara</button>
+
+          <button onClick={kopiera} style={{
+            width: "100%", padding: 12, background: kopierad ? `${G}22` : "transparent",
+            border: `1px solid ${kopierad ? G : "#334"}`,
+            borderRadius: 14, color: kopierad ? G : "#5577aa",
+            fontWeight: 600, fontSize: 14, cursor: "pointer",
+            fontFamily: "Outfit, sans-serif", transition: "all .2s",
+          }}>
+            {kopierad ? "✅ Delningskod kopierad!" : "📤 Kopiera delningskod"}
+          </button>
+        </>)}
+
+        {/* ── PERIODER LÄGE ── */}
+        {läge === "perioder" && (<>
+          {/* Period-flikar */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+            {perioder.map((p, pi) => (
+              <button key={p.id} onClick={() => setAktivPeriod(pi)} style={{
+                flex: 1, padding: "10px 6px", border: "none", borderRadius: 10,
+                background: aktivPeriod === pi ? periodFärger[pi] : NC,
+                color: aktivPeriod === pi ? "#001435" : "#5577aa",
+                fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>
+                {p.namn || `Period ${pi + 1}`}
+              </button>
+            ))}
+            {perioder.length < 4 && (
+              <button onClick={() => {
+                const [y, m] = month.split("-");
+                setPerioder(prev => [...prev, {
+                  id: `p${Date.now()}`, namn: `Period ${prev.length + 1}`,
+                  startDatum: `${month}-01`, slutDatum: `${month}-30`,
+                  tbStege: [{ snitt: 0, procent: 3 }], kpiMål: [], bonusAktiv: false,
+                  specialRegel: { aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 },
+                }]);
+                setAktivPeriod(perioder.length);
+              }} style={{
+                width: 36, padding: "10px 0", border: `1px solid ${N}`, borderRadius: 10,
+                background: "transparent", color: "#5577aa", fontSize: 18,
+                cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>+</button>
+            )}
+          </div>
+
+          {/* Aktiv period namn */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Periodnamn</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={perioder[aktivPeriod]?.namn ?? ""} placeholder="t.ex. Period 1"
+                onChange={e => setPerioder(prev => prev.map((p, i) => i === aktivPeriod ? { ...p, namn: e.target.value } : p))}
+                style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 14, fontFamily: "Outfit, sans-serif" }}
+              />
+              {perioder.length > 1 && (
+                <button onClick={() => { setPerioder(prev => prev.filter((_, i) => i !== aktivPeriod)); setAktivPeriod(0); }}
+                  style={{ background: "transparent", border: "1px solid #440000", color: "#884444", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif" }}>
+                  Ta bort
+                </button>
+              )}
             </div>
           </div>
-        </div>
 
-        <button onClick={() => onSave(stege, kpiMål, bonusAktiv)} style={{
-          width: "100%", padding: 16, background: G, border: "none",
-          borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
-          cursor: "pointer", fontFamily: "Outfit, sans-serif", marginBottom: 10,
-        }}>Spara</button>
+          {/* Period-editor */}
+          {perioder[aktivPeriod] && (
+            <PeriodStegeEditor
+              period={perioder[aktivPeriod]}
+              onChange={upd => setPerioder(prev => prev.map((p, i) => i === aktivPeriod ? upd : p))}
+            />
+          )}
 
-        <button onClick={kopiera} style={{
-          width: "100%", padding: 12, background: kopierad ? `${G}22` : "transparent",
-          border: `1px solid ${kopierad ? G : "#334"}`,
-          borderRadius: 14, color: kopierad ? G : "#5577aa",
-          fontWeight: 600, fontSize: 14, cursor: "pointer",
-          fontFamily: "Outfit, sans-serif", transition: "all .2s",
-        }}>
-          {kopierad ? "✅ Delningskod kopierad!" : "📤 Kopiera delningskod"}
-        </button>
+          <div style={{ height: 20 }} />
+
+          <button onClick={() => onSavePerioder(perioder)} style={{
+            width: "100%", padding: 16, background: G, border: "none",
+            borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
+            cursor: "pointer", fontFamily: "Outfit, sans-serif",
+          }}>Spara perioder</button>
+        </>)}
       </div>
     </div>
   );
@@ -2356,25 +2654,23 @@ function getSwedishHolidays(year) {
   const offset = (base, days) => { const dt = new Date(base); dt.setDate(dt.getDate() + days); return dt; };
 
   const holidays = new Set([
-    `${year}-01-01`, // Nyårsdagen
-    `${year}-01-06`, // Trettondag jul
-    d(offset(easter, -2)), // Långfredagen
-    d(easter),              // Påskdagen
-    d(offset(easter, 1)),   // Annandag påsk
-    `${year}-05-01`,        // Första maj
-    d(offset(easter, 39)),  // Kristi himmelsfärd
-    d(offset(easter, 49)),  // Pingstdagen
-    `${year}-06-06`,        // Nationaldagen
-    `${year}-12-25`,        // Juldagen
-    `${year}-12-26`,        // Annandag jul
+    `${year}-01-01`,
+    `${year}-01-06`,
+    d(offset(easter, -2)),
+    d(easter),
+    d(offset(easter, 1)),
+    `${year}-05-01`,
+    d(offset(easter, 39)),
+    d(offset(easter, 49)),
+    `${year}-06-06`,
+    `${year}-12-25`,
+    `${year}-12-26`,
   ]);
 
-  // Midsommardagen — lördagen 20-26 juni
   for (let day = 20; day <= 26; day++) {
     const dt = new Date(year, 5, day);
     if (dt.getDay() === 6) { holidays.add(d(dt)); break; }
   }
-  // Alla helgons dag — lördagen 31 okt - 6 nov
   for (let day = 31; day <= 37; day++) {
     const dt = new Date(year, day > 31 ? 10 : 9, day > 31 ? day - 31 : day);
     if (dt.getDay() === 6) { holidays.add(d(dt)); break; }
@@ -2411,7 +2707,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [datum, setDatum]         = useState(initialDay?.datum ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
 
-  // ── Hel-månad state ──────────────────────────────────────────────────────
   const [mVardagar, setMVardagar]   = useState(0);
   const [mLördagar, setMLördagar]   = useState(0);
   const [mSöndagar, setMSöndagar]   = useState(0);
@@ -2420,7 +2715,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [mTotalTB, setMTotalTB]     = useState("");
   const [mSnittSkott, setMSnittSkott] = useState("");
 
-  // Uppdatera default tider vid byte av dagtyp
   function changeDagTyp(typ) {
     setDagTyp(typ);
     if (!initialDay) {
@@ -2493,7 +2787,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           }}>✕</button>
         </div>
 
-        {/* Flikar — dölj vid redigering */}
         {!initialDay && (
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
             {[["pass", "📅 Enskilt pass"], ["månad", "📆 Hel månad"]].map(([key, label]) => (
@@ -2525,7 +2818,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             );
           }
 
-          // Beräkna timlön för månaden
           const lön = (typ, antal) => antal * calcDayPay(typ, getDefaults(typ).start ?? 9*60, getDefaults(typ).end ?? 17*60, settings.timlön);
           const totalLön = lön("vardag", mVardagar) + lön("lördag", mLördagar) + lön("söndag", mSöndagar) + lön("röd", mRöda);
           const totalSkott = mKassa * (parseFloat(mSnittSkott) || 0);
@@ -2554,7 +2846,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
                 style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: 16 }}
               />
 
-              {/* Förhandsvisning */}
               {totalDagar > 0 && (
                 <div style={{ background: `${G}12`, border: `1px solid ${GD}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
                   <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 8 }}>{totalDagar} dagar · {mVardagar}V {mLördagar}L {mSöndagar}S {mRöda}R {mKassa}K</div>
@@ -2603,13 +2894,11 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           ))}
         </div>
 
-        {/* Tider */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
           <TimeControl label="Starttid" value={startMin} onChange={setStartMin} />
           <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
         </div>
 
-        {/* Datum (obligatoriskt) */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ color: datum ? "#5577aa" : "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
             Datum <span style={{ color: datum ? "#334" : "#f5a623" }}>*</span>
@@ -2642,7 +2931,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           </div>}
         </div>
 
-        {/* Passtyp */}
         <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Passtyp</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
           {[["sälj", "💼 Säljdag", G], ["annan", "🔧 Kassa / Lager", "#f5a623"]].map(([val, label, color]) => (
@@ -2656,7 +2944,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
         </div>
 
         {passTyp === "sälj" ? (<>
-          {/* TB */}
           <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>TB (kr)</div>
           <input
             type="number" value={tb} step={500} min={0}
@@ -2665,7 +2952,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             style={{ width: "100%", background: ND, border: `1px solid ${N}`, color: G, borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, marginBottom: activeKPIs.length > 0 ? 14 : 20 }}
           />
 
-          {/* KPI-fält per pass */}
           {activeKPIs.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Tjänster</div>
@@ -2685,7 +2971,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             </div>
           )}
         </>) : (<>
-          {/* Skottpengar */}
           <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Skottpengar (kr)</div>
           <input
             type="number" value={skott} step={100} min={0}
@@ -2695,7 +2980,6 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           />
         </>)}
 
-        {/* Förhandsvisning */}
         <div style={{ background: `${G}10`, border: `1px solid ${GD}`, borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
           <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 6 }}>
             {minToHHMM(startMin)} – {minToHHMM(endMin)} &nbsp;·&nbsp; {((endMin - startMin)/60).toFixed(2).replace(".", ",")} timmar
@@ -2725,26 +3009,26 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           </div>
         </div>
 
-          {/* Tävlingsbonus — visas bara om aktiv denna månad */}
-          {bonusAktiv && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏆 Tävlingsbonus</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[0, 500, 1000].map(val => (
-                  <button key={val} onClick={() => setBonus(val)} style={{
-                    flex: 1, padding: "12px 0", border: "none", borderRadius: 12,
-                    background: bonus === val ? (val === 0 ? NC : "#f5a623") : NC,
-                    color: bonus === val ? (val === 0 ? "#5577aa" : "#001435") : "#5577aa",
-                    fontWeight: 700, fontSize: 15, cursor: "pointer",
-                    fontFamily: "Rajdhani, sans-serif",
-                    border: bonus === val && val === 0 ? `1px solid #334` : bonus === val ? "none" : `1px solid ${N}`,
-                  }}>
-                    {val === 0 ? "Ingen" : `+${val} kr`}
-                  </button>
-                ))}
-              </div>
+        {bonusAktiv && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏆 Tävlingsbonus</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[0, 500, 1000].map(val => (
+                <button key={val} onClick={() => setBonus(val)} style={{
+                  flex: 1, padding: "12px 0", border: "none", borderRadius: 12,
+                  background: bonus === val ? (val === 0 ? NC : "#f5a623") : NC,
+                  color: bonus === val ? (val === 0 ? "#5577aa" : "#001435") : "#5577aa",
+                  fontWeight: 700, fontSize: 15, cursor: "pointer",
+                  fontFamily: "Rajdhani, sans-serif",
+                  border: bonus === val && val === 0 ? `1px solid #334` : bonus === val ? "none" : `1px solid ${N}`,
+                }}>
+                  {val === 0 ? "Ingen" : `+${val} kr`}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+        )}
+
         <button
           onClick={() => {
             onSaveDefault(dagTyp, startMin, endMin, prov);
