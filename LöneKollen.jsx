@@ -1774,10 +1774,10 @@ export default function LöneKollen() {
           initialBonus={mData.bonusAktiv ?? false}
           initialPerioder={mData.perioder ?? null}
           month={month}
-          onSave={(stege, kpiMål, bonusAktiv) => {
+          onSave={(stege, kpiMål, bonusAktiv, specialRegel) => {
             saveMonthStege(stege);
             saveMonthKPI(kpiMål);
-            mutateMonth(cur => ({ ...cur, bonusAktiv }));
+            mutateMonth(cur => ({ ...cur, bonusAktiv, specialRegel }));
             setStegeOpen(false);
           }}
           onSavePerioder={(nyaPerioder) => {
@@ -1794,7 +1794,21 @@ export default function LöneKollen() {
         <DayForm
           settings={settings}
           kpiMål={mData.kpiMål ?? []}
-          bonusAktiv={mData.bonusAktiv ?? false}
+          bonusAktiv={(() => {
+            // Om perioder finns — kolla vilken period passet tillhör baserat på datum
+            if (perioder && datum) {
+              const p = perioder.find(p => datum >= p.startDatum && datum <= p.slutDatum);
+              if (p) return p.bonusAktiv ?? false;
+            }
+            return mData.bonusAktiv ?? false;
+          })()}
+          getPeriodBonusAktiv={(d) => {
+            if (perioder && d) {
+              const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
+              if (p) return p.bonusAktiv ?? false;
+            }
+            return mData.bonusAktiv ?? false;
+          }}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => {
             saveDay(day);
@@ -2325,16 +2339,33 @@ function PeriodStegeEditor({ period, onChange }) {
         + Lägg till KPI
       </button>
 
+      {/* Tävlingsbonus */}
+      <div style={{ background: period.bonusAktiv ? "#1a1200" : ND, border: `1px solid ${period.bonusAktiv ? "#f5a62355" : N}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ color: period.bonusAktiv ? "#f5a623" : "#5577aa", fontWeight: 600, fontSize: 13 }}>🏆 Tävlingsbonus</div>
+            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>Visar bonusfält (0 / 500 / 1 000 kr) per pass</div>
+          </div>
+          <div onClick={() => onChange({ ...period, bonusAktiv: !period.bonusAktiv })} style={{
+            width: 42, height: 24, borderRadius: 12, flexShrink: 0,
+            background: period.bonusAktiv ? "#f5a623" : "#334",
+            position: "relative", cursor: "pointer", transition: "background .2s",
+          }}>
+            <div style={{ position: "absolute", top: 3, left: period.bonusAktiv ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+          </div>
+        </div>
+      </div>
+
       {/* Specialregel */}
-      <div style={{ background: special.aktiv ? "#1a1200" : ND, border: `1px solid ${special.aktiv ? "#f5a62355" : N}`, borderRadius: 10, padding: "12px 14px" }}>
+      <div style={{ background: special.aktiv ? "#0d1a00" : ND, border: `1px solid ${special.aktiv ? "#5bc50055" : N}`, borderRadius: 10, padding: "12px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: special.aktiv ? 12 : 0 }}>
           <div>
-            <div style={{ color: special.aktiv ? "#f5a623" : "#5577aa", fontWeight: 600, fontSize: 13 }}>💎 Specialregel (t.ex. Diamant-tävling)</div>
-            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>Aktivera om perioden har extra regler vid högt snitt</div>
+            <div style={{ color: special.aktiv ? G : "#5577aa", fontWeight: 600, fontSize: 13 }}>💎 Specialregel (t.ex. Diamant-tävling)</div>
+            <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>Extra regler vid högt snitt-TB</div>
           </div>
           <div onClick={() => updateSpecial("aktiv", !special.aktiv)} style={{
             width: 42, height: 24, borderRadius: 12, flexShrink: 0,
-            background: special.aktiv ? "#f5a623" : "#334",
+            background: special.aktiv ? G : "#334",
             position: "relative", cursor: "pointer", transition: "background .2s",
           }}>
             <div style={{ position: "absolute", top: 3, left: special.aktiv ? 21 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
@@ -2345,19 +2376,19 @@ function PeriodStegeEditor({ period, onChange }) {
             <div>
               <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Snittgräns (kr/dag)</div>
               <input type="number" value={special.snittGräns ?? 15000} step={1000} onChange={e => updateSpecial("snittGräns", parseFloat(e.target.value)||0)}
-                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                style={{ width: "100%", background: NC, border: `1px solid ${GD}55`, color: G, borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
               />
             </div>
             <div>
               <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>% hela TB</div>
               <input type="number" value={special.snittProcent ?? 7} step={0.5} onChange={e => updateSpecial("snittProcent", parseFloat(e.target.value)||0)}
-                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                style={{ width: "100%", background: NC, border: `1px solid ${GD}55`, color: G, borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
               />
             </div>
             <div>
               <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>% överskott</div>
               <input type="number" value={special.överskottProcent ?? 10} step={0.5} onChange={e => updateSpecial("överskottProcent", parseFloat(e.target.value)||0)}
-                style={{ width: "100%", background: NC, border: `1px solid #f5a62333`, color: "#f5a623", borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                style={{ width: "100%", background: NC, border: `1px solid ${GD}55`, color: G, borderRadius: 6, padding: "7px 6px", fontSize: 13, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
               />
             </div>
           </div>
@@ -2376,6 +2407,7 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
   const [kodInput, setKodInput]     = useState("");
   const [kodFel, setKodFel]         = useState(false);
   const [aktivPeriod, setAktivPeriod] = useState(0);
+  const [enkelSpecial, setEnkelSpecial] = useState({ aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 });
 
   const defaultPerioder = initialPerioder ?? [
     {
@@ -2532,7 +2564,7 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
           </button>
 
           <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>Tävlingsbonus</div>
-          <div style={{ background: NC, border: `1px solid ${bonusAktiv ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
+          <div style={{ background: NC, border: `1px solid ${bonusAktiv ? "#f5a62344" : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Aktiv denna månad</div>
@@ -2548,7 +2580,42 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
             </div>
           </div>
 
-          <button onClick={() => onSave(stege, kpiMål, bonusAktiv)} style={{
+          {/* Specialregel i enkel-läge */}
+          {(() => {
+            const special = enkelSpecial;
+            return (
+              <div style={{ background: special.aktiv ? "#0d1a00" : NC, border: `1px solid ${special.aktiv ? `${GD}55` : N}`, borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: special.aktiv ? 12 : 0 }}>
+                  <div>
+                    <div style={{ color: special.aktiv ? G : "#fff", fontWeight: 600, fontSize: 14 }}>💎 Specialregel</div>
+                    <div style={{ color: "#5577aa", fontSize: 12, marginTop: 2 }}>Extra regler vid högt snitt-TB</div>
+                  </div>
+                  <div onClick={() => setEnkelSpecial(s => ({ ...s, aktiv: !s.aktiv }))} style={{
+                    width: 46, height: 26, borderRadius: 13, flexShrink: 0,
+                    background: special.aktiv ? G : "#334",
+                    position: "relative", cursor: "pointer", transition: "background .2s",
+                  }}>
+                    <div style={{ position: "absolute", top: 3, left: special.aktiv ? 22 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+                  </div>
+                </div>
+                {special.aktiv && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {[["Snittgräns (kr/dag)", "snittGräns", 15000, 1000], ["% hela TB", "snittProcent", 7, 0.5], ["% överskott", "överskottProcent", 10, 0.5]].map(([lbl, key, def, step]) => (
+                      <div key={key}>
+                        <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{lbl}</div>
+                        <input type="number" value={special[key] ?? def} step={step}
+                          onChange={e => setEnkelSpecial(s => ({ ...s, [key]: parseFloat(e.target.value)||0 }))}
+                          style={{ width: "100%", background: ND, border: `1px solid ${GD}55`, color: G, borderRadius: 8, padding: "8px 8px", fontSize: 14, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <button onClick={() => onSave(stege, kpiMål, bonusAktiv, enkelSpecial)} style={{
             width: "100%", padding: 16, background: G, border: "none",
             borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
             cursor: "pointer", fontFamily: "Outfit, sans-serif", marginBottom: 10,
@@ -2690,7 +2757,7 @@ function getDagTypFromDate(dateStr) {
   return "vardag";
 }
 
-function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv, getPeriodBonusAktiv }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
   const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
 
@@ -2706,6 +2773,11 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [bonus, setBonus]         = useState(initialDay?.bonus ?? 0);
   const [datum, setDatum]         = useState(initialDay?.datum ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
+  // Bonus aktiv — uppdateras när datum väljs om getPeriodBonusAktiv finns
+  const [aktivBonus, setAktivBonus] = useState(() => {
+    if (getPeriodBonusAktiv && initialDay?.datum) return getPeriodBonusAktiv(initialDay.datum);
+    return bonusAktiv;
+  });
 
   const [mVardagar, setMVardagar]   = useState(0);
   const [mLördagar, setMLördagar]   = useState(0);
@@ -2908,6 +2980,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             onChange={e => {
               const val = e.target.value;
               setDatum(val);
+              if (getPeriodBonusAktiv) setAktivBonus(getPeriodBonusAktiv(val));
               if (!initialDay && val) {
                 const detectedTyp = getDagTypFromDate(val);
                 if (detectedTyp) {
@@ -3009,7 +3082,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           </div>
         </div>
 
-        {bonusAktiv && (
+        {aktivBonus && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏆 Tävlingsbonus</div>
             <div style={{ display: "flex", gap: 8 }}>
