@@ -116,6 +116,7 @@ export default function LöneKollen() {
   const [kodModalOpen, setKodModalOpen]   = useState(false);
   const [expandPeriod, setExpandPeriod]   = useState(null); // period id som är expanderad
   const [dagsmålPopup, setDagsmålPopup]   = useState(null); // { förslag: number } | null
+  const [expandPass, setExpandPass]       = useState({}); // { periodId/all: bool }
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -405,11 +406,26 @@ export default function LöneKollen() {
               <div style={{ color: "#6688bb", fontSize: 12, marginTop: 1 }}>Elgiganten · Handels OB</div>
             </div>
             {tab === "mån" && (
-              <button onClick={() => setAddOpen(true)} style={{
-                background: G, border: "none", borderRadius: 12,
-                color: "#001435", fontWeight: 700, fontSize: 22,
-                width: 42, height: 42, cursor: "pointer", lineHeight: 1,
-              }}>+</button>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                {/* Provision-knapp */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  <button onClick={() => setStegeOpen(true)} style={{
+                    background: N, border: `1px solid ${G}44`, borderRadius: 12,
+                    color: G, fontWeight: 700, fontSize: 18,
+                    width: 42, height: 42, cursor: "pointer", lineHeight: 1,
+                  }}>⚙️</button>
+                  <div style={{ color: "#5577aa", fontSize: 9, fontWeight: 600, letterSpacing: 0.5 }}>PROVISION</div>
+                </div>
+                {/* Pass-knapp */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  <button onClick={() => setAddOpen(true)} style={{
+                    background: G, border: "none", borderRadius: 12,
+                    color: "#001435", fontWeight: 700, fontSize: 22,
+                    width: 42, height: 42, cursor: "pointer", lineHeight: 1,
+                  }}>+</button>
+                  <div style={{ color: "#5577aa", fontSize: 9, fontWeight: 600, letterSpacing: 0.5 }}>PASS</div>
+                </div>
+              </div>
             )}
           </div>
 
@@ -450,22 +466,96 @@ export default function LöneKollen() {
           {/* ════════════════ MÅNADSVY ════════════════ */}
           {tab === "mån" && (<>
 
-            {/* Provision-knapp */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              <button onClick={() => setStegeOpen(true)} style={{
-                flex: 1, padding: "11px 0",
-                background: (!mData.tbStege && !mData.perioder) ? "#f5a623" : NC,
-                border: `1px solid ${(!mData.tbStege && !mData.perioder) ? "#f5a623" : N}`,
-                borderRadius: 12, cursor: "pointer", fontFamily: "Outfit, sans-serif",
-                fontWeight: 700, fontSize: 14,
-                color: (!mData.tbStege && !mData.perioder) ? "#001435" : "#fff",
+            {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
+            <div style={{ marginBottom: 14 }}>
+              <div onClick={() => setBruttoOpen(o => !o)} style={{
+                background: N, borderRadius: bruttoOpen ? "16px 16px 0 0" : 16,
+                padding: "18px 18px 14px", cursor: "pointer",
+                borderBottom: bruttoOpen ? `1px solid ${ND}` : "none",
+                transition: "border-radius .2s",
               }}>
-                {(!mData.tbStege && !mData.perioder) ? "⚠️ Sätt provision" : "⚙️ Provision"}
-              </button>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
+                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
+                      <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
+                      {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
+                      {summary.bonusTotal > 0 && <span>🏆 {fmt(summary.bonusTotal)}</span>}
+                    </div>
+                  </div>
+                  <div style={{ color: "#5577aa", fontSize: 18, marginTop: 4 }}>{bruttoOpen ? "▲" : "▼"}</div>
+                </div>
+              </div>
+              {bruttoOpen && (
+                <div style={{ background: NC, padding: "12px 18px", borderBottom: `1px solid ${ND}` }}>
+                  {[
+                    ["Baslön", summary.baseLön, null],
+                    ["OB-tillägg", summary.obLön, null],
+                    ...(summary.periodSummaries
+                      ? summary.periodSummaries.map(p => [`${p.namn} provision`, p.tbProv, p.specialAktiverad ? "#f5a623" : null])
+                      : [[`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null]]),
+                    ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
+                    ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
+                    ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
+                  ].map(([label, val, color], i, arr) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none" }}>
+                      <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
+                      <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 14 }}>{fmt(val)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex" }}>
+                <div style={{ flex: 1, background: NC, padding: "14px 18px", borderRight: `1px solid ${ND}`, borderRadius: "0 0 0 16px" }}>
+                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
+                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
+                </div>
+                {settings.semesterLön && (
+                  <div style={{ flex: 1, background: `${G}18`, padding: "14px 18px", borderRadius: "0 0 16px 0" }}>
+                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
+                    </div>
+                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
+                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Expanderbara period-kort */}
-            {summary.periodSummaries && (
+            {/* Pass-räknare */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              {(summary.isManual ? [
+                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0, null],
+                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0, null],
+                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0, null],
+                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0, null],
+                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
+              ].filter(([,v]) => v > 0) : [
+                ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
+                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
+                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
+                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
+                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
+              ]).map(([label, val, plan]) => (
+                <div key={label} style={{ background: ND, border: `1px solid ${N}`, borderRadius: 8, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
+                  <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
+                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>
+                    {val}{plan !== null ? <span style={{ color: "#5577aa", fontWeight: 500 }}>/{plan}</span> : ""}
+                  </span>
+                </div>
+              ))}
+              <button onClick={() => setPlaneraOpen(true)} style={{
+                background: "transparent", border: `1px solid ${N}`,
+                borderRadius: 8, color: "#5577aa", fontSize: 12,
+                padding: "5px 10px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>✏️ Planera</button>
+            </div>
+
+            {/* Expanderbara period-kort med inbyggd passlista */}
+            {summary.periodSummaries ? (
               <div style={{ marginBottom: 14 }}>
                 {summary.periodSummaries.map((p, pi) => {
                   const pFärg = pi === 0 ? "#5577aa" : "#f5a623";
@@ -476,8 +566,12 @@ export default function LöneKollen() {
                   const pTbGräns = p.specialRegel?.aktiv ? (p.specialRegel.snittGräns ?? 0) * p.säljDagar : 0;
                   const pTillgodo = p.totalTB - (p.aktivStege?.snitt ?? 0) * p.säljDagar;
                   const pÖverskott = pTillgodo >= 0;
+                  const pDays = days.filter(d => d.datum && d.datum >= p.startDatum && d.datum <= p.slutDatum)
+                    .sort((a,b) => b.datum.localeCompare(a.datum));
+                  const passExpanded = expandPass[p.id] !== false; // default öppet
                   return (
                     <div key={p.id} style={{ marginBottom: 10 }}>
+                      {/* Period-huvud */}
                       <div onClick={() => setExpandPeriod(pExpanded ? null : p.id)} style={{
                         background: NC, border: `2px solid ${pExpanded ? pFärg : `${pFärg}44`}`,
                         borderRadius: pExpanded ? "14px 14px 0 0" : 14,
@@ -512,8 +606,10 @@ export default function LöneKollen() {
                           ))}
                         </div>
                       </div>
+
+                      {/* Expanderad provision-info */}
                       {pExpanded && (
-                        <div style={{ background: "#001030", border: `2px solid ${pFärg}`, borderTop: "none", borderRadius: "0 0 14px 14px", padding: "14px 16px" }}>
+                        <div style={{ background: "#001030", border: `2px solid ${pFärg}`, borderTop: "none", padding: "14px 16px", borderRadius: pDays.length > 0 ? "0" : "0 0 14px 14px" }}>
                           {p.specialRegel?.aktiv && (
                             <div style={{ background: p.specialAktiverad ? "#1a1200" : "#0d0d1a", border: `1px solid ${p.specialAktiverad ? "#f5a62355" : "#334"}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
                               <div style={{ color: p.specialAktiverad ? "#f5a623" : "#5577aa", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
@@ -568,102 +664,117 @@ export default function LöneKollen() {
                           )}
                         </div>
                       )}
+
+                      {/* Kollapsbar passlista per period */}
+                      <div style={{ border: `2px solid ${pFärg}44`, borderTop: "none", borderRadius: pExpanded ? "0 0 14px 14px" : (pDays.length > 0 ? "0 0 14px 14px" : 0) }}>
+                        <div onClick={() => setExpandPass(prev => ({ ...prev, [p.id]: !passExpanded }))} style={{
+                          background: "#001030", padding: "10px 16px", cursor: "pointer",
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          borderRadius: passExpanded ? 0 : "0 0 12px 12px",
+                        }}>
+                          <div style={{ color: pFärg, fontSize: 11, fontWeight: 700 }}>
+                            📋 {pDays.length} pass registrerade
+                          </div>
+                          <div style={{ color: "#5577aa", fontSize: 14 }}>{passExpanded ? "▲" : "▼"}</div>
+                        </div>
+                        {passExpanded && pDays.length > 0 && (
+                          <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
+                            {pDays.map(day => {
+                              const meta = DAG_META[day.dagTyp];
+                              const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                              const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
+                              const bonus = day.bonus ?? 0;
+                              const tbProv = day.passTyp === "sälj"
+                                ? (day.tb ?? 0) * ((p.aktivStege?.procent ?? 0) + (p.kpiProcent ?? 0)) / 100
+                                : 0;
+                              const tot = pay + prov + bonus + tbProv;
+                              const h = (day.endMin - day.startMin) / 60;
+                              return (
+                                <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}`, animation: "slideUp .2s ease" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                      <span style={{ fontSize: 18 }}>{meta.emoji}</span>
+                                      <div>
+                                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 11 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                        <div style={{ color: "#5577aa", fontSize: 11 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} · {h.toFixed(1).replace(".", ",")}h</div>
+                                      </div>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 16 }}>{fmt(tot)}</div>
+                                      {day.tb > 0 && <div style={{ color: "#5577aa", fontSize: 10 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{bonus > 0 ? ` · 🏆+${bonus}` : ""}</div>}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                    <button onClick={() => { setEditId(day.id); setAddOpen(true); }} style={{ flex: 1, padding: "6px 0", background: "transparent", border: `1px solid ${N}`, borderRadius: 8, color: "#6688bb", cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif" }}>Redigera</button>
+                                    <button onClick={() => { if (window.confirm(`Ta bort passet?`)) deleteDay(day.id); }} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #440000", borderRadius: 8, color: "#884444", cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif" }}>✕</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {passExpanded && pDays.length === 0 && (
+                          <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "16px", textAlign: "center", color: "#4466aa", fontSize: 13 }}>
+                            Inga pass registrerade för denna period
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
-              </div>
-            )}
 
-            {/* ── HERO-KORT: Brutto · Netto · Semesterlön ── */}
-            <div style={{ marginBottom: 14 }}>
-              <div onClick={() => setBruttoOpen(o => !o)} style={{
-                background: N, borderRadius: bruttoOpen ? "16px 16px 0 0" : 16,
-                padding: "18px 18px 14px", cursor: "pointer",
-                borderBottom: bruttoOpen ? `1px solid ${ND}` : "none",
-                transition: "border-radius .2s",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Brutto denna månad</div>
-                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1 }}>{fmt(summary.brutto)}</div>
-                    <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6, display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
-                      <span>Timlön {fmt(summary.baseLön + summary.obLön)}</span>
-                      {summary.tbProv > 0 && <span>Provision {fmt(summary.tbProv)}</span>}
-                      {summary.bonusTotal > 0 && <span>🏆 {fmt(summary.bonusTotal)}</span>}
+                {/* Pass utan period */}
+                {(() => {
+                  const oDays = days.filter(d => !d.datum || !perioder.some(p => d.datum >= p.startDatum && d.datum <= p.slutDatum))
+                    .sort((a,b) => (b.datum ?? "").localeCompare(a.datum ?? ""));
+                  if (oDays.length === 0) return null;
+                  const passExpanded = expandPass["other"] !== false;
+                  return (
+                    <div style={{ marginBottom: 10, border: `2px solid #33444444`, borderRadius: 14 }}>
+                      <div onClick={() => setExpandPass(prev => ({ ...prev, other: !passExpanded }))} style={{
+                        background: NC, padding: "12px 16px", cursor: "pointer", borderRadius: passExpanded ? "12px 12px 0 0" : 12,
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                      }}>
+                        <div style={{ color: "#5577aa", fontSize: 12, fontWeight: 700 }}>📋 Övriga pass ({oDays.length})</div>
+                        <div style={{ color: "#5577aa", fontSize: 14 }}>{passExpanded ? "▲" : "▼"}</div>
+                      </div>
+                      {passExpanded && (
+                        <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
+                          {oDays.map(day => {
+                            const meta = DAG_META[day.dagTyp];
+                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                            const bonus = day.bonus ?? 0;
+                            const tot = pay + (day.skott ?? 0) + bonus;
+                            return (
+                              <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}` }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 18 }}>{meta.emoji}</span>
+                                    <div>
+                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontSize: 11 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                      <div style={{ color: "#5577aa", fontSize: 11 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)}</div>
+                                    </div>
+                                  </div>
+                                  <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 16 }}>{fmt(tot)}</div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <button onClick={() => { setEditId(day.id); setAddOpen(true); }} style={{ flex: 1, padding: "6px 0", background: "transparent", border: `1px solid ${N}`, borderRadius: 8, color: "#6688bb", cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif" }}>Redigera</button>
+                                  <button onClick={() => { if (window.confirm("Ta bort passet?")) deleteDay(day.id); }} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #440000", borderRadius: 8, color: "#884444", cursor: "pointer", fontSize: 12, fontFamily: "Outfit, sans-serif" }}>✕</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <div style={{ color: "#5577aa", fontSize: 18, marginTop: 4 }}>{bruttoOpen ? "▲" : "▼"}</div>
-                </div>
+                  );
+                })()}
               </div>
-              {bruttoOpen && (
-                <div style={{ background: NC, padding: "12px 18px", borderBottom: `1px solid ${ND}` }}>
-                  {[
-                    ["Baslön", summary.baseLön, null],
-                    ["OB-tillägg", summary.obLön, null],
-                    ...(summary.periodSummaries
-                      ? summary.periodSummaries.map(p => [`${p.namn} provision`, p.tbProv, p.specialAktiverad ? "#f5a623" : null])
-                      : [[`TB-provision (${summary.aktivStege?.procent ?? 0}%)`, summary.totalTB * (summary.aktivStege?.procent ?? 0) / 100, null]]),
-                    ...(summary.kpiResults?.filter(k => k.nådd).map(k => [`✅ KPI: ${k.namn} (+${k.procent}%)`, summary.totalTB * k.procent / 100, G]) ?? []),
-                    ...(summary.skottTotal > 0 ? [["Skottpengar", summary.skottTotal, null]] : []),
-                    ...(summary.bonusTotal > 0 ? [["🏆 Tävlingsbonus", summary.bonusTotal, "#f5a623"]] : []),
-                  ].map(([label, val, color], i, arr) => (
-                    <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < arr.length - 1 ? `1px solid ${N}` : "none" }}>
-                      <span style={{ color: "#6688bb", fontSize: 13 }}>{label}</span>
-                      <span style={{ color: color ?? (val > 0 ? "#c8deff" : "#334"), fontWeight: 600, fontFamily: "Rajdhani, sans-serif", fontSize: 14 }}>{fmt(val)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: "flex" }}>
-                <div style={{ flex: 1, background: NC, padding: "14px 18px", borderRight: `1px solid ${ND}`, borderRadius: bruttoOpen ? "0 0 0 16px" : "0 0 0 16px" }}>
-                  <div style={{ color: "#5577aa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>Netto ({settings.skatt}%)</div>
-                  <div style={{ color: "#fff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(summary.netto)}</div>
-                </div>
-                {settings.semesterLön && (
-                  <div style={{ flex: 1, background: `${G}18`, padding: "14px 18px", borderRadius: "0 0 16px 0" }}>
-                    <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
-                    </div>
-                    <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
-                      {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pass-räknare */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-              {(summary.isManual ? [
-                ["💼 Vardagar",  mData.manualDagar?.vardagar   ?? 0, null],
-                ["🛒 Lördagar",  mData.manualDagar?.lördagar   ?? 0, null],
-                ["☀️ Söndagar",  mData.manualDagar?.söndagar   ?? 0, null],
-                ["🔴 Röda",      mData.manualDagar?.röda       ?? 0, null],
-                ["🔧 Kassa",     mData.manualDagar?.kassaDagar ?? 0, null],
-              ].filter(([,v]) => v > 0) : [
-                ["📋 Pass",      days.length,                                              planeradeTotal > 0 ? planeradeTotal : null],
-                ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
-                ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
-                ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
-                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
-              ]).map(([label, val, plan]) => (
-                <div key={label} style={{ background: ND, border: `1px solid ${N}`, borderRadius: 8, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
-                  <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
-                  <span style={{ color: val > 0 ? G : "#334", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14 }}>
-                    {val}{plan !== null ? <span style={{ color: "#5577aa", fontWeight: 500 }}>/{plan}</span> : ""}
-                  </span>
-                </div>
-              ))}
-              <button onClick={() => setPlaneraOpen(true)} style={{
-                background: "transparent", border: `1px solid ${N}`,
-                borderRadius: 8, color: "#5577aa", fontSize: 12,
-                padding: "5px 10px", cursor: "pointer", fontFamily: "Outfit, sans-serif",
-              }}>✏️ Planera</button>
-            </div>
-
-            {/* TB-sektion — visas bara utan perioder */}
-            {summary.säljDagar > 0 && !summary.periodSummaries && (
+            ) : (
+              // Ingen period — enkel kollapsbar passlista
+              <div style={{ marginBottom: 14 }}>
+                {/* TB-sektion utan perioder */}
+                {summary.säljDagar > 0 && (
               <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid ${GD}` }}>
 
                 {/* ── HERO: Total provision-% + KPI-badges ── */}
@@ -860,83 +971,73 @@ export default function LöneKollen() {
               </div>
             )}
 
-            <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
-              {days.length} pass registrerade
-            </div>
-
-            {days.length === 0 && (
-              <div style={{ ...cardStyle, textAlign: "center", padding: "32px 20px", color: "#334" }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📅</div>
-                <div style={{ color: "#4466aa", fontSize: 14 }}>Tryck + för att lägga till ditt första pass</div>
+                {/* Kollapsbar passlista */}
+                {(() => {
+                  const allPassExpanded = expandPass["all"] !== false;
+                  const sortedDays = [...days].sort((a,b) => {
+                    if (a.datum && b.datum) return b.datum.localeCompare(a.datum);
+                    return (b.registrerad ?? 0) - (a.registrerad ?? 0);
+                  });
+                  return (
+                    <div style={{ border: `1px solid ${N}`, borderRadius: 14 }}>
+                      <div onClick={() => setExpandPass(prev => ({ ...prev, all: !allPassExpanded }))} style={{
+                        background: NC, padding: "12px 16px", cursor: "pointer",
+                        borderRadius: allPassExpanded ? "12px 12px 0 0" : 12,
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                      }}>
+                        <div style={{ color: G, fontSize: 12, fontWeight: 700 }}>📋 {days.length} pass registrerade</div>
+                        <div style={{ color: "#5577aa", fontSize: 14 }}>{allPassExpanded ? "▲" : "▼"}</div>
+                      </div>
+                      {allPassExpanded && (
+                        <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
+                          {days.length === 0 && (
+                            <div style={{ textAlign: "center", padding: "24px 0", color: "#4466aa" }}>
+                              <div style={{ fontSize: 32, marginBottom: 8 }}>📅</div>
+                              Tryck + för att lägga till ditt första pass
+                            </div>
+                          )}
+                          {sortedDays.map(day => {
+                            const meta = DAG_META[day.dagTyp];
+                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                            const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
+                            const bonus = day.bonus ?? 0;
+                            const tbProv = day.passTyp === "sälj"
+                              ? (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100
+                              : 0;
+                            const tot = pay + prov + bonus + tbProv;
+                            const h = (day.endMin - day.startMin) / 60;
+                            return (
+                              <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}`, animation: "slideUp .2s ease" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 20 }}>{meta.emoji}</span>
+                                    <div>
+                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 12 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                      <div style={{ color: "#5577aa", fontSize: 12 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} &nbsp;·&nbsp; {h.toFixed(2).replace(".", ",")}h</div>
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: "right" }}>
+                                    <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(tot)}</div>
+                                    {day.passTyp === "annan"
+                                      ? <div style={{ color: "#f5a623", fontSize: 11 }}>skott {fmt(day.skott ?? 0)}</div>
+                                      : day.tb > 0 ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{bonus > 0 ? ` · 🏆 +${bonus}` : ""}</div> : null
+                                    }
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                  <button onClick={() => { setEditId(day.id); setAddOpen(true); }} style={{ flex: 1, padding: "7px 0", background: "transparent", border: `1px solid ${N}`, borderRadius: 8, color: "#6688bb", cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif" }}>Redigera</button>
+                                  <button onClick={() => { if (window.confirm(`Ta bort ${meta.label}-passet?`)) deleteDay(day.id); }} style={{ padding: "7px 14px", background: "transparent", border: "1px solid #440000", borderRadius: 8, color: "#884444", cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif" }}>✕</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
-
-            {[...days].map((d, i) => ({ ...d, _idx: i }))
-              .sort((a, b) => {
-                if (a.datum && b.datum) return b.datum.localeCompare(a.datum);
-                if (a.datum && !b.datum) return -1;
-                if (!a.datum && b.datum) return 1;
-                const ar = a.registrerad ?? a._idx;
-                const br = b.registrerad ?? b._idx;
-                return br - ar;
-              }).map(day => {
-              const meta      = DAG_META[day.dagTyp];
-              const breakMin  = getBreakMin(day.dagTyp);
-              const pay       = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
-              const prov      = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
-              const bonus     = day.bonus ?? 0;
-              const tbProv    = day.passTyp === "sälj"
-                ? (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100
-                : 0;
-              const totalBrutto = pay + prov + bonus + tbProv;
-              const h         = (day.endMin - day.startMin) / 60;
-
-              return (
-                <div key={day.id} style={{
-                  ...cardStyle, marginBottom: 10,
-                  borderLeft: `4px solid ${meta.color}`,
-                  animation: "slideUp .2s ease",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 20 }}>{meta.emoji}</span>
-                      <div>
-                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 12 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
-                        <div style={{ color: "#5577aa", fontSize: 12 }}>
-                          {minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} &nbsp;·&nbsp; {h.toFixed(2).replace(".", ",")}h
-                          {breakMin > 0 && <span style={{ color: "#445" }}> &nbsp;·&nbsp; {breakMin}min rast</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ color: G, fontWeight: 700, fontFamily: "Rajdhani, sans-serif", fontSize: 18 }}>{fmt(totalBrutto)}</div>
-                      {day.passTyp === "annan"
-                        ? <div style={{ color: "#f5a623", fontSize: 11 }}>skott {fmt(day.skott ?? 0)}</div>
-                        : day.tb > 0
-                          ? <div style={{ color: "#5577aa", fontSize: 11 }}>TB {Math.round(day.tb).toLocaleString("sv-SE")} kr{bonus > 0 ? ` · 🏆 +${bonus}` : ""}</div>
-                          : null
-                      }
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                    <button onClick={() => { setEditId(day.id); setAddOpen(true); }} style={{
-                      flex: 1, padding: "7px 0", background: "transparent",
-                      border: `1px solid ${N}`, borderRadius: 8, color: "#6688bb",
-                      cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif",
-                    }}>Redigera</button>
-                    <button onClick={() => {
-                      if (window.confirm(`Ta bort ${meta.label}-passet (${minToHHMM(day.startMin)}–${minToHHMM(day.endMin)})?`)) {
-                        deleteDay(day.id);
-                      }
-                    }} style={{
-                      padding: "7px 14px", background: "transparent",
-                      border: "1px solid #440000", borderRadius: 8, color: "#884444",
-                      cursor: "pointer", fontSize: 13, fontFamily: "Outfit, sans-serif",
-                    }}>✕</button>
-                  </div>
-                </div>
-              );
-            })}
           </>)}
 
           {/* ════════════════ GNISTAN ════════════════ */}
