@@ -278,9 +278,18 @@ export default function LöneKollen() {
       // ── Multi-period beräkning ──
       periodSummaries = perioder.map(p => {
         const pDays = days.filter(d => d.datum && d.datum >= p.startDatum && d.datum <= p.slutDatum);
+        // Slå ihop period-KPI med månads-KPI för att matcha sparade tjänster-id:n
+        const månadsKPIList = mData.kpiMål ?? [];
+        const periodKPIList = p.kpiMål ?? [];
+        const mergedKPI = [...månadsKPIList];
+        periodKPIList.forEach(pk => {
+          if (!mergedKPI.some(m => m.id === pk.id || m.namn === pk.namn)) {
+            mergedKPI.push(pk);
+          }
+        });
         return {
           ...p,
-          ...calcPeriodSummary(pDays, p.tbStege ?? [], p.kpiMål ?? [], p.specialRegel),
+          ...calcPeriodSummary(pDays, p.tbStege ?? [], mergedKPI, p.specialRegel),
           passDays: pDays,
         };
       });
@@ -1715,16 +1724,26 @@ export default function LöneKollen() {
         <DayForm
           settings={settings}
           kpiMål={(() => {
-            // Hämta KPI från rätt period eller fallback till månads-KPI
+            // Slå ihop mData.kpiMål (gamla id:n) och period-KPI
+            // mData.kpiMål prioriteras för att matcha sparade tjänster-id:n
+            const månadsKPI = mData.kpiMål ?? [];
             if (perioder) {
               const editDatum = editId ? days.find(d => d.id === editId)?.datum : null;
-              if (editDatum) {
-                const p = perioder.find(p => editDatum >= p.startDatum && editDatum <= p.slutDatum);
-                if (p) return p.kpiMål ?? [];
-              }
-              return [];
+              const p = editDatum
+                ? perioder.find(p => editDatum >= p.startDatum && editDatum <= p.slutDatum)
+                : null;
+              const periodKPI = p?.kpiMål ?? [];
+              // Använd månadsKPI om den finns, annars period-KPI
+              // Slå ihop: månadsKPI + period-KPI som inte redan finns (baserat på namn)
+              const merged = [...månadsKPI];
+              periodKPI.forEach(pk => {
+                if (!merged.some(m => m.id === pk.id || m.namn === pk.namn)) {
+                  merged.push(pk);
+                }
+              });
+              return merged;
             }
-            return mData.kpiMål ?? [];
+            return månadsKPI;
           })()}
           bonusAktiv={mData.bonusAktiv ?? false}
           getPeriodBonusAktiv={(d) => {
