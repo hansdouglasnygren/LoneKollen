@@ -223,17 +223,17 @@ export default function LöneKollen() {
     });
     const kpiProcent = kpiResults.filter(k => k.nådd).reduce((s,k) => s + k.procent, 0);
 
-    // Specialregel (t.ex. Diamant-tävling: snitt ≥ 15 000 → 7% på hela + 10% på överskott)
+    // Specialregel: snitt ≥ gräns → 7% på TB upp till (gräns × dagar), 10% på överskottet
     let tbProv = 0;
     let specialAktiverad = false;
     if (specialRegel?.aktiv && snittTB >= (specialRegel.snittGräns ?? 0)) {
       specialAktiverad = true;
-      const snittProcent = (specialRegel.snittProcent ?? 7) / 100;
+      const snittProcent     = (specialRegel.snittProcent ?? 7) / 100;
       const överskottProcent = (specialRegel.överskottProcent ?? 10) / 100;
-      const snittGräns = specialRegel.snittGräns ?? 0;
-      const tbGräns = snittGräns * säljDagar;
+      const tbGräns = (specialRegel.snittGräns ?? 0) * säljDagar;
+      const tbUnder = Math.min(totalTB, tbGräns);
       const tbÖver  = Math.max(0, totalTB - tbGräns);
-      tbProv = totalTB * snittProcent + tbÖver * överskottProcent;
+      tbProv = tbUnder * snittProcent + tbÖver * överskottProcent;
     } else {
       const totalProcent = (aktivStege.procent + kpiProcent) / 100;
       tbProv = totalTB * totalProcent;
@@ -527,7 +527,7 @@ export default function LöneKollen() {
                       </div>
                       {p.specialAktiverad && (
                         <div style={{ marginTop: 8, background: "#1a1200", border: "1px solid #f5a62344", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#f5a623" }}>
-                          🏆 Specialregel aktiv: {p.specialRegel?.snittProcent ?? 7}% på hela TB + {p.specialRegel?.överskottProcent ?? 10}% på överskott
+                          🏆 Specialregel aktiv: {p.specialRegel?.snittProcent ?? 7}% upp till gränsen + {p.specialRegel?.överskottProcent ?? 10}% på överskott
                         </div>
                       )}
                       {p.kpiResults?.filter(k => k.nådd).length > 0 && !p.specialAktiverad && (
@@ -1793,21 +1793,27 @@ export default function LöneKollen() {
       {addOpen && (
         <DayForm
           settings={settings}
-          kpiMål={mData.kpiMål ?? []}
-          bonusAktiv={(() => {
-            // Om perioder finns — kolla vilken period passet tillhör baserat på datum
-            if (perioder && datum) {
-              const p = perioder.find(p => datum >= p.startDatum && datum <= p.slutDatum);
-              if (p) return p.bonusAktiv ?? false;
+          kpiMål={(() => {
+            // Hämta KPI från rätt period eller fallback till månads-KPI
+            if (perioder) {
+              const editDatum = editId ? days.find(d => d.id === editId)?.datum : null;
+              if (editDatum) {
+                const p = perioder.find(p => editDatum >= p.startDatum && editDatum <= p.slutDatum);
+                if (p) return p.kpiMål ?? [];
+              }
+              return [];
             }
-            return mData.bonusAktiv ?? false;
+            return mData.kpiMål ?? [];
           })()}
+          bonusAktiv={mData.bonusAktiv ?? false}
           getPeriodBonusAktiv={(d) => {
-            if (perioder && d) {
-              const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
-              if (p) return p.bonusAktiv ?? false;
-            }
-            return mData.bonusAktiv ?? false;
+            try {
+              if (perioder && d) {
+                const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
+                if (p) return p.bonusAktiv ?? false;
+              }
+              return mData.bonusAktiv ?? false;
+            } catch { return mData.bonusAktiv ?? false; }
           }}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => {
@@ -1857,6 +1863,61 @@ function encodeProvision(stege, kpiMål, bonusAktiv) {
   const data = { s: stege.map(s => [s.snitt, s.procent]), k: kpiMål.map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]), b: bonusAktiv ? 1 : 0 };
   try { return "LK-" + btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
   catch { return ""; }
+}
+
+function encodeMånad(läge, stege, kpiMål, bonusAktiv, enkelSpecial, perioder) {
+  try {
+    const data = {
+      v: 2, // version
+      l: läge === "perioder" ? "p" : "e",
+      // Enkel-läge
+      s: stege.map(s => [s.snitt, s.procent]),
+      k: kpiMål.map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]),
+      b: bonusAktiv ? 1 : 0,
+      sr: enkelSpecial ? [enkelSpecial.aktiv ? 1 : 0, enkelSpecial.snittGräns ?? 15000, enkelSpecial.snittProcent ?? 7, enkelSpecial.överskottProcent ?? 10] : null,
+      // Period-läge
+      p: (perioder ?? []).map(p => ({
+        id: p.id, n: p.namn,
+        sd: p.startDatum, ed: p.slutDatum,
+        s: (p.tbStege ?? []).map(s => [s.snitt, s.procent]),
+        k: (p.kpiMål ?? []).map(k => [k.id, k.namn, k.mål, k.procent, k.aktiv !== false ? 1 : 0]),
+        b: p.bonusAktiv ? 1 : 0,
+        sr: p.specialRegel ? [p.specialRegel.aktiv ? 1 : 0, p.specialRegel.snittGräns ?? 15000, p.specialRegel.snittProcent ?? 7, p.specialRegel.överskottProcent ?? 10] : null,
+      })),
+    };
+    return "LK2-" + btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  } catch { return ""; }
+}
+
+function decodeMånad(kod) {
+  try {
+    // Nytt format LK2-
+    if (kod.startsWith("LK2-")) {
+      const data = JSON.parse(decodeURIComponent(escape(atob(kod.slice(4)))));
+      const läge = data.l === "p" ? "perioder" : "enkel";
+      const stege = (data.s ?? []).map(([snitt, procent]) => ({ snitt, procent }));
+      const kpiMål = (data.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 }));
+      const bonusAktiv = data.b === 1;
+      const enkelSpecial = data.sr ? { aktiv: data.sr[0] === 1, snittGräns: data.sr[1], snittProcent: data.sr[2], överskottProcent: data.sr[3] } : null;
+      const perioder = (data.p ?? []).map(p => ({
+        id: p.id, namn: p.n,
+        startDatum: p.sd, slutDatum: p.ed,
+        tbStege: (p.s ?? []).map(([snitt, procent]) => ({ snitt, procent })),
+        kpiMål: (p.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 })),
+        bonusAktiv: p.b === 1,
+        specialRegel: p.sr ? { aktiv: p.sr[0] === 1, snittGräns: p.sr[1], snittProcent: p.sr[2], överskottProcent: p.sr[3] } : { aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 },
+      }));
+      return { läge, stege, kpiMål, bonusAktiv, enkelSpecial, perioder };
+    }
+    // Gammalt format LK-
+    if (kod.startsWith("LK-")) {
+      const data = JSON.parse(decodeURIComponent(escape(atob(kod.slice(3)))));
+      const stege = (data.s ?? []).map(([snitt, procent]) => ({ snitt, procent }));
+      const kpiMål = (data.k ?? []).map(([id, namn, mål, procent, aktiv]) => ({ id, namn, mål, procent, aktiv: aktiv === 1 }));
+      return { läge: "enkel", stege, kpiMål, bonusAktiv: data.b === 1, enkelSpecial: null, perioder: [] };
+    }
+    return null;
+  } catch { return null; }
 }
 
 function decodeProvision(kod) {
@@ -2408,6 +2469,8 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
   const [kodFel, setKodFel]         = useState(false);
   const [aktivPeriod, setAktivPeriod] = useState(0);
   const [enkelSpecial, setEnkelSpecial] = useState({ aktiv: false, snittGräns: 15000, snittProcent: 7, överskottProcent: 10 });
+  const [visaKod, setVisaKod]       = useState(false);
+  const [genKod, setGenKod]         = useState("");
 
   const defaultPerioder = initialPerioder ?? [
     {
@@ -2430,20 +2493,26 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
   const [perioder, setPerioder] = useState(defaultPerioder);
 
   function kopiera() {
-    const kod = encodeProvision(stege, kpiMål, bonusAktiv);
+    const kod = encodeMånad(läge, stege, kpiMål, bonusAktiv, enkelSpecial, perioder);
+    setGenKod(kod);
+    setVisaKod(true);
     navigator.clipboard?.writeText(kod).then(() => {
       setKopierad(true);
       setTimeout(() => setKopierad(false), 2000);
-    });
+    }).catch(() => {});
   }
 
   function tillämpKod() {
-    const result = decodeProvision(kodInput.trim());
+    const result = decodeMånad(kodInput.trim()) ?? decodeProvision(kodInput.trim());
     if (!result) { setKodFel(true); setTimeout(() => setKodFel(false), 2000); return; }
-    setStege(result.stege);
-    setKpiMål(result.kpiMål);
-    setBonusAktiv(result.bonusAktiv);
+    if (result.läge) setLäge(result.läge);
+    if (result.stege?.length > 0) setStege(result.stege);
+    if (result.kpiMål) setKpiMål(result.kpiMål);
+    setBonusAktiv(result.bonusAktiv ?? false);
+    if (result.enkelSpecial) setEnkelSpecial(result.enkelSpecial);
+    if (result.perioder?.length > 0) setPerioder(result.perioder);
     setKodInput("");
+    setVisaKod(false);
   }
 
   function updateSteg(i, field, val) {
@@ -2484,20 +2553,6 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
 
         {/* ── ENKEL LÄGE ── */}
         {läge === "enkel" && (<>
-          <div style={{ background: ND, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
-            <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📥 Ange delningskod</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input value={kodInput} onChange={e => setKodInput(e.target.value)} placeholder="LK-..."
-                style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontFamily: "Outfit, sans-serif" }}
-              />
-              <button onClick={tillämpKod} style={{
-                background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
-                color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 13,
-                padding: "8px 14px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
-              }}>{kodFel ? "Ogiltig kod" : "Tillämpa"}</button>
-            </div>
-          </div>
-
           <div style={{ color: G, fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>TB-stege</div>
           {stege.map((s, i) => (
             <div key={i} style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
@@ -2626,10 +2681,31 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
             border: `1px solid ${kopierad ? G : "#334"}`,
             borderRadius: 14, color: kopierad ? G : "#5577aa",
             fontWeight: 600, fontSize: 14, cursor: "pointer",
-            fontFamily: "Outfit, sans-serif", transition: "all .2s",
+            fontFamily: "Outfit, sans-serif", transition: "all .2s", marginBottom: 10,
           }}>
-            {kopierad ? "✅ Delningskod kopierad!" : "📤 Kopiera delningskod"}
+            {kopierad ? "✅ Kopierad till urklipp!" : "📤 Generera delningskod"}
           </button>
+
+          {visaKod && (
+            <div style={{ background: ND, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Din delningskod — markera och kopiera</div>
+              <div style={{ color: G, fontSize: 11, fontFamily: "monospace", wordBreak: "break-all", userSelect: "all" }}>{genKod}</div>
+            </div>
+          )}
+
+          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>📥 Ange delningskod från kollega</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={kodInput} onChange={e => setKodInput(e.target.value)} placeholder="LK- eller LK2-..."
+                style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontFamily: "monospace" }}
+              />
+              <button onClick={tillämpKod} style={{
+                background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
+                color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 12,
+                padding: "8px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
+              }}>{kodFel ? "Ogiltig!" : "Tillämpa"}</button>
+            </div>
+          </div>
         </>)}
 
         {/* ── PERIODER LÄGE ── */}
@@ -2694,8 +2770,39 @@ function StegeModal({ initialStege, initialKPI, initialBonus, initialPerioder, m
           <button onClick={() => onSavePerioder(perioder)} style={{
             width: "100%", padding: 16, background: G, border: "none",
             borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 17,
-            cursor: "pointer", fontFamily: "Outfit, sans-serif",
+            cursor: "pointer", fontFamily: "Outfit, sans-serif", marginBottom: 10,
           }}>Spara perioder</button>
+
+          <button onClick={kopiera} style={{
+            width: "100%", padding: 12, background: kopierad ? `${G}22` : "transparent",
+            border: `1px solid ${kopierad ? G : "#334"}`,
+            borderRadius: 14, color: kopierad ? G : "#5577aa",
+            fontWeight: 600, fontSize: 14, cursor: "pointer",
+            fontFamily: "Outfit, sans-serif", transition: "all .2s", marginBottom: 10,
+          }}>
+            {kopierad ? "✅ Kopierad till urklipp!" : "📤 Generera delningskod (alla perioder)"}
+          </button>
+
+          {visaKod && (
+            <div style={{ background: ND, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+              <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Din delningskod — markera och kopiera</div>
+              <div style={{ color: G, fontSize: 11, fontFamily: "monospace", wordBreak: "break-all", userSelect: "all" }}>{genKod}</div>
+            </div>
+          )}
+
+          <div style={{ background: ND, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>📥 Ange delningskod från kollega</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={kodInput} onChange={e => setKodInput(e.target.value)} placeholder="LK- eller LK2-..."
+                style={{ flex: 1, background: NC, border: `1px solid ${kodFel ? "#aa2222" : N}`, color: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontFamily: "monospace" }}
+              />
+              <button onClick={tillämpKod} style={{
+                background: kodFel ? "#440000" : N, border: "none", borderRadius: 8,
+                color: kodFel ? "#ff6666" : G, fontWeight: 700, fontSize: 12,
+                padding: "8px 12px", cursor: "pointer", fontFamily: "Outfit, sans-serif", whiteSpace: "nowrap",
+              }}>{kodFel ? "Ogiltig!" : "Tillämpa"}</button>
+            </div>
+          </div>
         </>)}
       </div>
     </div>
