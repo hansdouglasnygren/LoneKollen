@@ -115,6 +115,7 @@ export default function LöneKollen() {
   const [bruttoOpen, setBruttoOpen]       = useState(false);
   const [kodModalOpen, setKodModalOpen]   = useState(false);
   const [expandPeriod, setExpandPeriod]   = useState(null); // period id som är expanderad
+  const [dagsmålPopup, setDagsmålPopup]   = useState(null); // { förslag: number } | null
 
   // ── Gnistan-state ────────────────────────────────────────────────────────
   const [sparkTab, setSparkTab]       = useState("live");
@@ -1296,6 +1297,7 @@ export default function LöneKollen() {
                 {/* ── MÅL ── */}
                 {sparkTab === "mål" && (
                   <div>
+                    {/* Pass kvar */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px", marginBottom:14 }}>
                       <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>🎯 Pass kvar denna månad</div>
                       {planeradeTotal > 0 ? (
@@ -1314,25 +1316,98 @@ export default function LöneKollen() {
                           Tryck ✏️ Planera på månadsfliken för att sätta antal pass
                         </div>
                       )}
+                    </div>
 
-                      {nästaStege_ ? (<>
-                        <div style={{ background:`${G}15`, border:`1px solid ${GD}`, borderRadius:12, padding:"16px", marginBottom:12, textAlign:"center" }}>
-                          <div style={{ color:"#5bc58899", fontSize:11, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Du behöver i snitt per pass</div>
-                          <div style={{ color:G, fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:36 }}>{Math.ceil(neededPerPassNästa).toLocaleString("sv-SE")} kr</div>
-                          <div style={{ color:"#5577aa", fontSize:12, marginTop:4 }}>TB för att nå {nästaStege_.procent}%-serien</div>
-                        </div>
+                    {/* Dagsmål + högsta stege — två mål-kort */}
+                    {(() => {
+                      const högstalStege = [...stege].sort((a,b) => b.snitt - a.snitt)[0];
+                      const högstalSnitt = högstalStege?.snitt ?? 0;
 
-                        {curTotalTB > 0 && (() => {
-                          const extraKr      = curTotalTB * (nästaStege_.procent - aktivStege_.procent) / 100;
-                          const extraNetto   = extraKr * (1 - settings.skatt / 100);
-                          const projTB       = curTotalTB + (passKvar * nästaStege_.snitt);
-                          const projExtraKr  = projTB * (nästaStege_.procent - aktivStege_.procent) / 100;
+                      // Mål 1: Eget dagsmål
+                      const mål1 = dagsmål;
+                      const mål1Nådd = curSnitt >= mål1;
+                      const mål1Pct = mål1 > 0 ? Math.min(100, (curSnitt / mål1) * 100) : 0;
+                      const mål1KvarPerPass = passKvar > 0 && !mål1Nådd
+                        ? Math.max(0, (mål1 * (curSäljDagar + passKvar) - curTotalTB) / passKvar)
+                        : 0;
+
+                      // Mål 2: Högsta stegen
+                      const mål2 = högstalSnitt;
+                      const mål2Nådd = curSnitt >= mål2;
+                      const mål2Pct = mål2 > 0 ? Math.min(100, (curSnitt / mål2) * 100) : 0;
+                      const mål2KvarPerPass = passKvar > 0 && !mål2Nådd
+                        ? Math.max(0, (mål2 * (curSäljDagar + passKvar) - curTotalTB) / passKvar)
+                        : 0;
+
+                      function MålKort({ emoji, titel, målSnitt, nådd, pct, kvarPerPass, färg, procent }) {
+                        return (
+                          <div style={{ background: nådd ? `${färg}20` : NC, border:`2px solid ${nådd ? färg : `${färg}44`}`, borderRadius:14, padding:"16px", marginBottom:12 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                              <div>
+                                <div style={{ color: färg, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1.5, marginBottom:4 }}>{emoji} {titel}</div>
+                                <div style={{ color:"#fff", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:28 }}>{målSnitt.toLocaleString("sv-SE")} kr/dag</div>
+                                {procent && <div style={{ color:"#5577aa", fontSize:11, marginTop:2 }}>{procent}% provision</div>}
+                              </div>
+                              {nådd
+                                ? <div style={{ background:`${färg}33`, borderRadius:20, padding:"6px 14px", color: färg, fontWeight:700, fontSize:13 }}>✅ Nådd!</div>
+                                : <div style={{ background: ND, borderRadius:20, padding:"6px 14px", color:"#5577aa", fontWeight:700, fontSize:13 }}>{Math.round(pct)}%</div>
+                              }
+                            </div>
+                            <div style={{ height:8, background:ND, borderRadius:4, overflow:"hidden", marginBottom:8 }}>
+                              <div style={{ height:"100%", borderRadius:4, background:`linear-gradient(90deg,${färg}88,${färg})`, width:`${pct}%`, transition:"width .4s" }} />
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between" }}>
+                              <span style={{ color:"#5577aa", fontSize:11 }}>Snitt nu: {Math.round(curSnitt).toLocaleString("sv-SE")} kr</span>
+                              {!nådd && kvarPerPass > 0 && (
+                                <span style={{ color: färg, fontSize:11, fontWeight:700 }}>Behöver {Math.ceil(kvarPerPass).toLocaleString("sv-SE")} kr/pass</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (<>
+                        <MålKort
+                          emoji="🔥"
+                          titel="Ditt dagsmål"
+                          målSnitt={mål1}
+                          nådd={mål1Nådd}
+                          pct={mål1Pct}
+                          kvarPerPass={mål1KvarPerPass}
+                          färg="#f5a623"
+                          procent={null}
+                        />
+                        {mål2 > 0 && mål2 !== mål1 && (
+                          <MålKort
+                            emoji="👑"
+                            titel={`Högsta serien (${högstalStege?.procent ?? 0}%)`}
+                            målSnitt={mål2}
+                            nådd={mål2Nådd}
+                            pct={mål2Pct}
+                            kvarPerPass={mål2KvarPerPass}
+                            färg={G}
+                            procent={högstalStege?.procent}
+                          />
+                        )}
+
+                        {/* Värt att kämpa för — nästa opnådda mål */}
+                        {(() => {
+                          const närmasteMål = !mål1Nådd ? mål1 : !mål2Nådd ? mål2 : null;
+                          const närmasteProcent = !mål1Nådd ? null : högstalStege?.procent;
+                          if (!närmasteMål || curTotalTB === 0) return null;
+                          const extraKr = närmasteProcent
+                            ? curTotalTB * (närmasteProcent - (aktivStege_?.procent ?? 0)) / 100
+                            : 0;
+                          const extraNetto = extraKr * (1 - settings.skatt / 100);
+                          const projTB = curTotalTB + passKvar * närmasteMål;
+                          const projExtraKr = närmasteProcent ? projTB * (närmasteProcent - (aktivStege_?.procent ?? 0)) / 100 : 0;
                           const projExtraNetto = projExtraKr * (1 - settings.skatt / 100);
+                          if (!närmasteProcent) return null;
                           return (
                             <div style={{ background:"#0d1f00", border:"2px solid #f5a62366", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
                               <div style={{ color:"#f5a62399", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>💰 Värt att kämpa för</div>
-                              <div style={{ color:"#5577aa", fontSize:11, marginBottom:6 }}>På redan tjänade {Math.round(curTotalTB).toLocaleString("sv-SE")} kr TB</div>
-                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+                              <div style={{ color:"#5577aa", fontSize:11, marginBottom:8 }}>På redan tjänade {Math.round(curTotalTB).toLocaleString("sv-SE")} kr TB</div>
+                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom: passKvar > 0 ? 12 : 0 }}>
                                 <div style={{ background:"#0a0a00", borderRadius:10, padding:"10px 12px" }}>
                                   <div style={{ color:"#5577aa", fontSize:10, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Brutto</div>
                                   <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:20 }}>+{fmt(extraKr)}</div>
@@ -1343,7 +1418,7 @@ export default function LöneKollen() {
                                 </div>
                               </div>
                               {passKvar > 0 && (<>
-                                <div style={{ borderTop:"1px solid #f5a62222", paddingTop:10, marginBottom:6 }}>
+                                <div style={{ borderTop:"1px solid #f5a62222", paddingTop:10, marginBottom:8 }}>
                                   <div style={{ color:"#5577aa", fontSize:11 }}>Hela månaden inkl {passKvar} pass kvar</div>
                                 </div>
                                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -1360,35 +1435,27 @@ export default function LöneKollen() {
                             </div>
                           );
                         })()}
+                      </>);
+                    })()}
 
-                        <div style={{ marginBottom:8 }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                            <span style={{ color:"#5577aa", fontSize:11 }}>Nuläge: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span>
-                            <span style={{ color:"#5577aa", fontSize:11 }}>Mål: {nästaStege_.snitt.toLocaleString("sv-SE")} kr/dag</span>
-                          </div>
-                          <div style={{ height:10, background:ND, borderRadius:5, overflow:"hidden" }}>
-                            <div style={{ height:"100%", borderRadius:5, background:`linear-gradient(90deg,${G},#f5a623)`, width:`${Math.min(100,(curSnitt/nästaStege_.snitt)*100)}%`, transition:"width .4s" }} />
-                          </div>
-                          <div style={{ color:G, fontSize:12, textAlign:"center", marginTop:6, fontWeight:700 }}>
-                            {Math.round((curSnitt/nästaStege_.snitt)*100)}% av vägen dit
-                          </div>
-                        </div>
-                      </>) : (
-                        <div style={{ background:`${G}20`, border:`1px solid ${GD}`, borderRadius:12, padding:"20px", textAlign:"center" }}>
-                          <div style={{ fontSize:32, marginBottom:8 }}>🏆</div>
-                          <div style={{ color:G, fontWeight:700, fontSize:18, marginBottom:6 }}>Högsta serien!</div>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}><span style={{ color:"#5577aa", fontSize:12 }}>Snitt: {Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag</span><span style={{ color:"#5577aa", fontSize:12 }}>Gräns: {(aktivStege_?.snitt ?? 0).toLocaleString("sv-SE")} kr/dag</span></div>
-                        </div>
-                      )}
-                    </div>
-
+                    {/* Dagsmål-inställning */}
                     <div style={{ background: NC, border:`1px solid ${N}`, borderRadius:16, padding:"16px 18px" }}>
-                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>🔥 Ditt dagsmål i TB (kr)</div>
+                      <div style={{ color:"#f5a623", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>🔥 Ändra ditt dagsmål (kr TB)</div>
                       <input type="number" value={dagsmål} step={1000} min={0}
                         onChange={e => setDagsmål(parseFloat(e.target.value)||0)}
                         style={{ width:"100%", background:ND, border:`1px solid #f5a62355`, color:"#f5a623", borderRadius:10, padding:"12px 16px", fontSize:20, fontFamily:"Rajdhani, sans-serif", fontWeight:700 }}
                       />
-                      <div style={{ color:"#5577aa", fontSize:12, marginTop:8 }}>Används för streak-räknaren</div>
+                      <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+                        {[...stege].sort((a,b) => a.snitt - b.snitt).filter(s => s.snitt > 0).map(s => (
+                          <button key={s.snitt} onClick={() => setDagsmål(s.snitt)} style={{
+                            padding:"5px 10px", background: dagsmål === s.snitt ? "#f5a62333" : ND,
+                            border:`1px solid ${dagsmål === s.snitt ? "#f5a623" : "#334"}`,
+                            borderRadius:8, color: dagsmål === s.snitt ? "#f5a623" : "#5577aa",
+                            fontSize:11, cursor:"pointer", fontFamily:"Outfit, sans-serif",
+                          }}>{s.snitt.toLocaleString("sv-SE")} kr ({s.procent}%)</button>
+                        ))}
+                      </div>
+                      <div style={{ color:"#5577aa", fontSize:11, marginTop:8 }}>Används för streak-räknaren och progress-baren ovan</div>
                     </div>
                   </div>
                 )}
@@ -1753,6 +1820,59 @@ export default function LöneKollen() {
         </div>
       </div>
 
+      {dagsmålPopup && (
+        <div style={{ position: "fixed", inset: 0, background: "#000c", display: "flex", alignItems: "flex-end", zIndex: 200 }}>
+          <div style={{ width: "100%", background: "#001a50", borderRadius: "24px 24px 0 0", padding: "24px 18px 40px", animation: "slideUp .25s ease" }}>
+            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 10 }}>🎯</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 20, textAlign: "center", marginBottom: 6 }}>Sätt ditt dagsmål</div>
+            <div style={{ color: "#5577aa", fontSize: 13, textAlign: "center", marginBottom: 20 }}>
+              Högsta stegen är {dagsmålPopup.förslag.toLocaleString("sv-SE")} kr/dag — sätt ditt mål!
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {/* Snabbval */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[dagsmålPopup.förslag, Math.round(dagsmålPopup.förslag * 0.8 / 1000) * 1000, Math.round(dagsmålPopup.förslag * 1.2 / 1000) * 1000]
+                  .filter((v,i,a) => v > 0 && a.indexOf(v) === i)
+                  .sort((a,b) => a-b)
+                  .map(v => (
+                    <button key={v} onClick={() => setDagsmålPopup(p => ({ ...p, valt: v }))} style={{
+                      flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer",
+                      background: dagsmålPopup.valt === v ? G : NC,
+                      border: `1px solid ${dagsmålPopup.valt === v ? G : N}`,
+                      color: dagsmålPopup.valt === v ? "#001435" : "#fff",
+                      fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16,
+                    }}>{v.toLocaleString("sv-SE")} kr</button>
+                  ))
+                }
+              </div>
+              {/* Eget värde */}
+              <input
+                type="number" step={1000} min={0}
+                value={dagsmålPopup.valt ?? dagsmålPopup.förslag}
+                onChange={e => setDagsmålPopup(p => ({ ...p, valt: parseFloat(e.target.value) || 0 }))}
+                style={{ width: "100%", background: ND, border: `1px solid #f5a62355`, color: "#f5a623", borderRadius: 10, padding: "12px 16px", fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setDagsmålPopup(null)} style={{
+                flex: 1, padding: 14, background: "transparent", border: `1px solid ${N}`,
+                borderRadius: 14, color: "#5577aa", fontWeight: 600, fontSize: 15,
+                cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>Hoppa över</button>
+              <button onClick={() => {
+                const val = dagsmålPopup.valt ?? dagsmålPopup.förslag;
+                setDagsmål(val);
+                setDagsmålPopup(null);
+              }} style={{
+                flex: 2, padding: 14, background: G, border: "none",
+                borderRadius: 14, color: "#001435", fontWeight: 700, fontSize: 15,
+                cursor: "pointer", fontFamily: "Outfit, sans-serif",
+              }}>✅ Sätt dagsmål</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {celebration && (
         <CelebrationModal
           celebration={celebration}
@@ -1797,10 +1917,17 @@ export default function LöneKollen() {
             saveMonthKPI(kpiMål);
             mutateMonth(cur => ({ ...cur, bonusAktiv, specialRegel }));
             setStegeOpen(false);
+            // Föreslå dagsmål baserat på högsta stegen
+            const högsta = [...stege].sort((a,b) => b.snitt - a.snitt)[0];
+            if (högsta?.snitt > 0) setDagsmålPopup({ förslag: högsta.snitt });
           }}
           onSavePerioder={(nyaPerioder) => {
             saveMonthPerioder(nyaPerioder);
             setStegeOpen(false);
+            // Föreslå dagsmål baserat på högsta stegen över alla perioder
+            const allaStege = nyaPerioder.flatMap(p => p.tbStege ?? []);
+            const högsta = [...allaStege].sort((a,b) => b.snitt - a.snitt)[0];
+            if (högsta?.snitt > 0) setDagsmålPopup({ förslag: högsta.snitt });
           }}
           onCancel={() => setStegeOpen(false)}
         />
