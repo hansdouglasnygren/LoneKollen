@@ -225,7 +225,7 @@ export default function LöneKollen() {
 
     const säljPass = passDays.filter(d => d.passTyp !== "annan");
     const kpiResults = (kpiMål ?? []).filter(k => k.aktiv !== false).map(kpi => {
-      const vals  = säljPass.map(d => d.tjänster?.[kpi.id] ?? 0);
+      const vals  = säljPass.map(d => d.tjänster?.[kpi.namn] ?? d.tjänster?.[kpi.id] ?? 0);
       const snitt = vals.length > 0 ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
       const nådd  = snitt >= kpi.mål;
       return { ...kpi, snitt, nådd };
@@ -330,7 +330,7 @@ export default function LöneKollen() {
       nästaStege = monthStege.find(s => s.snitt > snittTB);
       kpiResults = kpiMål.filter(k => k.aktiv !== false).map(kpi => {
         const säljPass = days.filter(d => d.passTyp !== "annan");
-        const vals = säljPass.map(d => d.tjänster?.[kpi.id] ?? 0);
+        const vals = säljPass.map(d => d.tjänster?.[kpi.namn] ?? d.tjänster?.[kpi.id] ?? 0);
         const snitt = vals.length > 0 ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
         const nådd = snitt >= kpi.mål;
         return { ...kpi, snitt, nådd };
@@ -343,7 +343,7 @@ export default function LöneKollen() {
     const provTotal  = tbProv + skottTotal + bonusTotal;
     const brutto   = baseLön + obLön + provTotal;
     const netto    = brutto * (1 - settings.skatt / 100);
-    const nettoSem = netto * 1.12;
+    const nettoSem = netto * 1.13;
     return { baseLön, obLön, tbProv, skottTotal, bonusTotal, provTotal, brutto, netto, nettoSem,
              totalTB, snittTB, säljDagar, aktivStege, nästaStege, isManual: !!manual,
              kpiResults, kpiProcent, periodSummaries };
@@ -520,7 +520,7 @@ export default function LöneKollen() {
                 {settings.semesterLön && (
                   <div style={{ flex: 1, background: `${G}18`, padding: "14px 18px", borderRadius: "0 0 16px 0" }}>
                     <div style={{ color: "#5bc58877", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +12%" : "Sem. intjänad"}
+                      {settings.semesterTyp === "månadsvis" ? "Ink. sem. +13%" : "Sem. intjänad"}
                     </div>
                     <div style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>
                       {settings.semesterTyp === "månadsvis" ? fmt(summary.nettoSem) : fmt(summary.nettoSem - summary.netto)}
@@ -543,8 +543,9 @@ export default function LöneKollen() {
                 ["💼 Vardagar",  days.filter(d => d.dagTyp === "vardag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "vardag").length || null : planerade.vardag ?? null],
                 ["🛒 Lördagar",  days.filter(d => d.dagTyp === "lördag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "lördag").length || null : planerade.lördag ?? null],
                 ["☀️ Söndagar",  days.filter(d => d.dagTyp === "söndag").length,           Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "söndag").length || null : planerade.söndag ?? null],
-                ...(days.some(d => d.dagTyp === "röd") ? [["🔴 Röda", days.filter(d => d.dagTyp === "röd").length, planerade.röd ?? null]] : []),
-              ]).map(([label, val, plan]) => (
+                ["🔴 Röda",      days.filter(d => d.dagTyp === "röd").length,              Array.isArray(planerade) ? planeradeArray.filter(p => p.dagTyp === "röd").length || null : planerade.röd ?? null],
+              ].filter(([, val, plan]) => val > 0 || (plan !== null && plan > 0))
+              ).map(([label, val, plan]) => (
                 <div key={label} style={{ background: ND, border: `1px solid ${N}`, borderRadius: 8, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5 }}>
                   <span style={{ fontSize: 11 }}>{label.split(" ")[0]}</span>
                   <span style={{ color: "#5577aa", fontSize: 11 }}>{label.split(" ")[1]}</span>
@@ -1654,26 +1655,62 @@ export default function LöneKollen() {
                   const kpiP         = summary?.kpiProcent ?? 0;
                   const totalProcent = (aktivStege_?.procent ?? 0) + kpiP;
                   const lönPerPass   = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön);
-                  const projTB       = curTotalTB + passKvar * curSnitt;
-                  const projProv     = projTB * totalProcent / 100;
                   const projLön      = days.reduce((s, d) => s + calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön), 0)
                                      + passKvar * lönPerPass;
-                  const projBrutto   = projLön + projProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
-                  const projNetto    = projBrutto * (1 - settings.skatt / 100);
+
+                  // Specialregel för aktiv period
+                  const specialRegel = gnistanPeriod?.specialRegel;
+                  const harSpecial   = specialRegel?.aktiv;
+                  const specialGräns = harSpecial ? (specialRegel.snittGräns ?? 0) * (curSäljDagar + passKvar) : 0;
+                  const maxTBTotal   = harSpecial ? specialGräns : topTier.snitt * (curSäljDagar + passKvar);
+
+                  // Bägare-beräkning
+                  // Stegmarkeringar baserat på stege
+                  const sortadeStege = [...stege].sort((a,b) => a.snitt - b.snitt).filter(s => s.snitt > 0);
+                  const maxSnitt     = harSpecial ? (specialRegel.snittGräns ?? 0) : (topTier.snitt ?? 0);
+                  const totalDagar   = curSäljDagar + passKvar;
+                  const maxTBMöjligt = maxSnitt * totalDagar;
+
+                  // TB gjort vs kvar
+                  const tbGjort  = curTotalTB;
+                  const tbKvar   = Math.max(0, maxTBMöjligt - tbGjort);
+                  const fyllnad  = maxTBMöjligt > 0 ? Math.min(1, tbGjort / maxTBMöjligt) : 0;
+                  const överskott = tbGjort > maxTBMöjligt;
+
+                  // Prov-beräkning
+                  const projTB   = curTotalTB + passKvar * curSnitt;
+                  const projProv = harSpecial
+                    ? (() => {
+                        const gräns = (specialRegel.snittGräns ?? 0) * Math.min(curSäljDagar + passKvar, totalDagar);
+                        const under = Math.min(projTB, gräns);
+                        const över  = Math.max(0, projTB - gräns);
+                        const snittOk = (curSäljDagar + passKvar) > 0 && projTB / (curSäljDagar + passKvar) >= (specialRegel.snittGräns ?? 0);
+                        return snittOk ? under * (specialRegel.snittProcent ?? 7) / 100 + över * (specialRegel.överskottProcent ?? 10) / 100
+                          : projTB * totalProcent / 100;
+                      })()
+                    : projTB * totalProcent / 100;
+                  const projBrutto = projLön + projProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const projNetto  = projBrutto * (1 - settings.skatt / 100);
+
                   const minTBPerPass = curSäljDagar > 0 && passKvar > 0
                     ? Math.max(0, (aktivStege_?.snitt ?? 0) * (curSäljDagar + passKvar) - curTotalTB) / passKvar
                     : 0;
-                  const drömVal      = parseFloat(drömSnitt) || 0;
-                  const drömTB       = curTotalTB + passKvar * drömVal;
-                  const drömTier     = [...stege].reverse().find(s => (drömTB/(curSäljDagar+passKvar||1)) >= s.snitt) ?? stege[0] ?? { procent: 0 };
-                  const drömProv     = drömTB * (drömTier.procent + kpiP) / 100;
-                  const drömBrutto   = projLön + drömProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
-                  const drömNetto    = drömBrutto * (1 - settings.skatt / 100);
-                  const maxTBPerPass = topTier.snitt;
-                  const maxTB        = curTotalTB + passKvar * maxTBPerPass;
-                  const maxProv      = maxTB * (topTier.procent + kpiP) / 100;
-                  const maxBrutto_   = projLön + maxProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
-                  const maxNetto_    = maxBrutto_ * (1 - settings.skatt / 100);
+                  const drömVal   = parseFloat(drömSnitt) || 0;
+                  const drömTB    = curTotalTB + passKvar * drömVal;
+                  const drömTier  = [...stege].reverse().find(s => (drömTB/(curSäljDagar+passKvar||1)) >= s.snitt) ?? stege[0] ?? { procent: 0 };
+                  const drömProv  = drömTB * (drömTier.procent + kpiP) / 100;
+                  const drömBrutto = projLön + drömProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const drömNetto  = drömBrutto * (1 - settings.skatt / 100);
+                  const maxProv    = harSpecial
+                    ? (() => {
+                        const gräns = specialGräns;
+                        const under = Math.min(maxTBTotal, gräns);
+                        const över  = Math.max(0, maxTBTotal - gräns);
+                        return under * (specialRegel.snittProcent ?? 7) / 100 + över * (specialRegel.överskottProcent ?? 10) / 100;
+                      })()
+                    : maxTBTotal * (topTier.procent + kpiP) / 100;
+                  const maxBrutto_ = projLön + maxProv + (summary?.skottTotal ?? 0) + (summary?.bonusTotal ?? 0);
+                  const maxNetto_  = maxBrutto_ * (1 - settings.skatt / 100);
 
                   function ProjCard({ title, emoji, brutto, netto, extra, color }) {
                     return (
@@ -1696,8 +1733,180 @@ export default function LöneKollen() {
                     );
                   }
 
+                  const BÄGARE_H = 280; // px höjd på bägaren
+
                   return (
                     <div>
+                      {/* ── TB STATUS-KORT ── */}
+                      <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+                        <div style={{ color: G, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12 }}>📊 TB denna period</div>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                          {[
+                            ["✅ Gjort", Math.round(tbGjort).toLocaleString("sv-SE") + " kr", G],
+                            ["🎯 Behövs för max", Math.round(maxTBMöjligt).toLocaleString("sv-SE") + " kr", "#f5a623"],
+                            ["📊 Kvar", Math.round(tbKvar).toLocaleString("sv-SE") + " kr", överskott ? G : "#c8deff"],
+                          ].map(([lbl, val, clr]) => (
+                            <div key={lbl} style={{ flex: 1, background: ND, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+                              <div style={{ color: "#5577aa", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{lbl}</div>
+                              <div style={{ color: clr, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {harSpecial && (
+                          <div style={{ background: "#1a1200", border: "1px solid #f5a62344", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#f5a623" }}>
+                            💎 Specialregel: snitt ≥ {(specialRegel.snittGräns ?? 0).toLocaleString("sv-SE")} kr/dag → {specialRegel.snittProcent ?? 7}% + {specialRegel.överskottProcent ?? 10}% på överskott
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── VERTIKAL BÄGARE ── */}
+                      <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+                        <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 16 }}>💰 TB-bägaren</div>
+                        <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+
+                          {/* Bägaren */}
+                          <div style={{ position: "relative", width: 70, flexShrink: 0 }}>
+                            {/* Yttre bägare */}
+                            <div style={{
+                              width: 70, height: BÄGARE_H,
+                              background: ND, borderRadius: "8px 8px 16px 16px",
+                              border: `2px solid ${N}`,
+                              position: "relative", overflow: "hidden",
+                            }}>
+                              {/* Fyllning — bas (upp till specialgräns eller max) */}
+                              <div style={{
+                                position: "absolute", bottom: 0, left: 0, right: 0,
+                                height: `${Math.min(fyllnad, 1) * 100}%`,
+                                background: överskott
+                                  ? `linear-gradient(180deg, #f5a623 0%, ${G} 60%)`
+                                  : `linear-gradient(180deg, ${G}88 0%, ${G} 100%)`,
+                                transition: "height .6s ease",
+                              }} />
+
+                              {/* Överskott-zonen (ovanför specialgränsen) — orange */}
+                              {harSpecial && tbGjort > maxTBMöjligt && (
+                                <div style={{
+                                  position: "absolute", bottom: "100%", left: 0, right: 0,
+                                  height: `${Math.min((tbGjort - maxTBMöjligt) / maxTBMöjligt * 100, 30)}%`,
+                                  background: "linear-gradient(180deg, #ff9900 0%, #f5a623 100%)",
+                                  opacity: 0.9,
+                                }} />
+                              )}
+
+                              {/* Steg-markeringar */}
+                              {sortadeStege.map((s, i) => {
+                                const yPct = maxSnitt > 0 ? (s.snitt / maxSnitt) * 100 : 0;
+                                const isCurrent = s.procent === (aktivStege_?.procent ?? 0);
+                                const isNästa = stege.find(st => st.snitt > curSnitt)?.snitt === s.snitt;
+                                return (
+                                  <div key={i} style={{
+                                    position: "absolute",
+                                    bottom: `${yPct}%`,
+                                    left: 0, right: 0,
+                                    borderTop: `2px dashed ${isCurrent ? G : isNästa ? "#f5a623" : "#334"}`,
+                                    zIndex: 2,
+                                  }} />
+                                );
+                              })}
+
+                              {/* Specialgräns-linje */}
+                              {harSpecial && (
+                                <div style={{
+                                  position: "absolute", bottom: "100%", left: 0, right: 0,
+                                  borderTop: "3px solid #f5a623",
+                                  zIndex: 3,
+                                  marginBottom: -1,
+                                }} />
+                              )}
+
+                              {/* Vågrörelse-effekt */}
+                              <div style={{
+                                position: "absolute",
+                                bottom: `${Math.min(fyllnad, 1) * 100}%`,
+                                left: -10, right: -10, height: 8,
+                                background: "rgba(255,255,255,0.15)",
+                                borderRadius: "50%",
+                                zIndex: 3,
+                              }} />
+                            </div>
+
+                            {/* Procent i bägaren */}
+                            <div style={{
+                              position: "absolute",
+                              bottom: `${Math.min(fyllnad * 100 / 2, 45)}%`,
+                              left: 0, right: 0, textAlign: "center",
+                              color: fyllnad > 0.15 ? "#001435" : "#5577aa",
+                              fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 16,
+                              zIndex: 4,
+                            }}>
+                              {Math.round(fyllnad * 100)}%
+                            </div>
+                          </div>
+
+                          {/* Etiketter till höger */}
+                          <div style={{ flex: 1, position: "relative", height: BÄGARE_H }}>
+                            {/* Specialgräns-etikett högst upp */}
+                            {harSpecial && (
+                              <div style={{ position: "absolute", top: -8, left: 0, right: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <div style={{ width: 12, height: 3, background: "#f5a623", borderRadius: 2 }} />
+                                  <div>
+                                    <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 700 }}>💎 Max ({specialRegel.snittGräns?.toLocaleString("sv-SE")} kr/dag)</div>
+                                    <div style={{ color: "#5577aa", fontSize: 10 }}>{Math.round(maxTBMöjligt).toLocaleString("sv-SE")} kr totalt · {specialRegel.snittProcent ?? 7}%+{specialRegel.överskottProcent ?? 10}%</div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Steg-etiketter */}
+                            {[...sortadeStege].reverse().map((s, i) => {
+                              const yPct  = maxSnitt > 0 ? (s.snitt / maxSnitt) * 100 : 0;
+                              const yPos  = BÄGARE_H - (yPct / 100 * BÄGARE_H);
+                              const tbNivå = s.snitt * totalDagar;
+                              const isCurrent = s.procent === (aktivStege_?.procent ?? 0);
+                              const nådd = curTotalTB >= tbNivå;
+                              return (
+                                <div key={i} style={{
+                                  position: "absolute",
+                                  top: yPos - 10,
+                                  left: 0, right: 0,
+                                }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <div style={{ width: 8, height: 2, background: isCurrent ? G : nådd ? `${G}66` : "#334", borderRadius: 1 }} />
+                                    <div>
+                                      <div style={{ color: isCurrent ? G : nådd ? `${G}99` : "#5577aa", fontSize: 11, fontWeight: isCurrent ? 700 : 400 }}>
+                                        {nådd ? "✅" : "○"} {s.procent}% — {s.snitt.toLocaleString("sv-SE")} kr/dag
+                                      </div>
+                                      <div style={{ color: "#444", fontSize: 10 }}>
+                                        {Math.round(tbNivå).toLocaleString("sv-SE")} kr totalt
+                                        {!nådd && <span style={{ color: "#f5a62399" }}> · kvar: {Math.round(Math.max(0, tbNivå - curTotalTB)).toLocaleString("sv-SE")} kr</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* Din position */}
+                            {maxTBMöjligt > 0 && (
+                              <div style={{
+                                position: "absolute",
+                                top: BÄGARE_H - (fyllnad * BÄGARE_H) - 14,
+                                left: 0, right: 0,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: G, border: "2px solid #fff", flexShrink: 0 }} />
+                                  <div style={{ background: `${G}22`, border: `1px solid ${G}`, borderRadius: 6, padding: "2px 8px" }}>
+                                    <div style={{ color: G, fontSize: 11, fontWeight: 700 }}>Du: {Math.round(curTotalTB).toLocaleString("sv-SE")} kr</div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Nuläge-rad */}
                       <div style={{ background: ND, borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                         {[
                           ["Snitt nu", `${Math.round(curSnitt).toLocaleString("sv-SE")} kr/dag`],
@@ -1748,9 +1957,7 @@ export default function LöneKollen() {
                           🚀 Kör hårt — vad händer om du gör...
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: drömVal > 0 ? 12 : 0 }}>
-                          <input
-                            type="number" value={drömSnitt} step={1000} min={0}
-                            placeholder="TB per pass..."
+                          <input type="number" value={drömSnitt} step={1000} min={0} placeholder="TB per pass..."
                             onChange={e => setDrömSnitt(e.target.value)}
                             style={{ flex: 1, background: ND, border: `1px solid ${N}`, color: "#c8deff", borderRadius: 10, padding: "10px 14px", fontSize: 18, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
                           />
@@ -1775,11 +1982,13 @@ export default function LöneKollen() {
                       </div>
 
                       <ProjCard
-                        title={`Månadsmax (${topTier.snitt.toLocaleString("sv-SE")} kr/pass)`}
+                        title={harSpecial ? `Max (${(specialRegel?.snittGräns ?? 0).toLocaleString("sv-SE")} kr/dag snitt)` : `Månadsmax (${topTier.snitt.toLocaleString("sv-SE")} kr/pass)`}
                         emoji="👑"
                         brutto={maxBrutto_}
                         netto={maxNetto_}
-                        extra={`${topTier.procent + kpiP}% provision · TB ${Math.round(maxTB).toLocaleString("sv-SE")} kr`}
+                        extra={harSpecial
+                          ? `${specialRegel?.snittProcent ?? 7}% upp till gränsen + ${specialRegel?.överskottProcent ?? 10}% på överskott`
+                          : `${topTier.procent + kpiP}% provision · TB ${Math.round(maxTBTotal).toLocaleString("sv-SE")} kr`}
                         color="#f5a623"
                       />
                     </div>
@@ -2226,10 +2435,45 @@ function CelebrationModal({ celebration, summary, settings, monthStege, onClose 
     }
   }, [phase]);
 
-  const tbProv    = (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100;
-  const bonus     = day.bonus ?? 0;
-  const tillgodo  = Math.round(summary.totalTB - (summary.aktivStege?.snitt ?? 0) * summary.säljDagar);
-  const överskott = tillgodo >= 0;
+  // Hitta rätt period för detta pass
+  const aktivPeriod = summary.periodSummaries
+    ? summary.periodSummaries.find(p => day.datum && day.datum >= p.startDatum && day.datum <= p.slutDatum)
+    : null;
+
+  // Beräkna TB-provision för detta pass med rätt modell
+  const dayTB = day.tb ?? 0;
+  let tbProv = 0;
+  if (aktivPeriod) {
+    const pSR = aktivPeriod.specialRegel;
+    const pSäljDagar = aktivPeriod.säljDagar;
+    const pTotalTB   = aktivPeriod.totalTB;
+    const pSnitt     = pSäljDagar > 0 ? pTotalTB / pSäljDagar : 0;
+    if (pSR?.aktiv && pSnitt >= (pSR.snittGräns ?? 0)) {
+      const tbGräns = (pSR.snittGräns ?? 0) * pSäljDagar;
+      const tbUnder = Math.min(pTotalTB, tbGräns);
+      const tbÖver  = Math.max(0, pTotalTB - tbGräns);
+      tbProv = tbUnder * (pSR.snittProcent ?? 7) / 100 + tbÖver * (pSR.överskottProcent ?? 10) / 100;
+      // Visa provisionsbidrag för just detta pass
+      const dagTbGräns = (pSR.snittGräns ?? 0);
+      const dagUnder = Math.min(dayTB, dagTbGräns);
+      const dagÖver  = Math.max(0, dayTB - dagTbGräns);
+      tbProv = dagUnder * (pSR.snittProcent ?? 7) / 100 + dagÖver * (pSR.överskottProcent ?? 10) / 100;
+    } else {
+      tbProv = dayTB * ((aktivPeriod.aktivStege?.procent ?? 0) + (aktivPeriod.kpiProcent ?? 0)) / 100;
+    }
+  } else {
+    tbProv = dayTB * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100;
+  }
+
+  const bonus = day.bonus ?? 0;
+
+  // TB tillgodo — använd rätt period
+  const tillgodoPeriod = aktivPeriod ?? summary;
+  const tillgodoSnitt  = aktivPeriod ? (aktivPeriod.aktivStege?.snitt ?? 0) : (summary.aktivStege?.snitt ?? 0);
+  const tillgodoDagar  = aktivPeriod ? aktivPeriod.säljDagar : summary.säljDagar;
+  const tillgodoTB     = aktivPeriod ? aktivPeriod.totalTB : summary.totalTB;
+  const tillgodo       = Math.round(tillgodoTB - tillgodoSnitt * tillgodoDagar);
+  const överskott      = tillgodo >= 0;
 
   const emojiSet = nivå === 3
     ? ["🍺","🌈","⚡","💥","🎆","🏆","👑","💰","🔥","🎊","💸","✨","🎉","🌟","💫"]
@@ -3147,7 +3391,21 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [passTyp, setPassTyp]     = useState(initialDay?.passTyp ?? "sälj");
   const [tb, setTb]               = useState(initialDay?.tb ?? "");
   const [skott, setSkott]         = useState(initialDay?.skott ?? "");
-  const [tjänster, setTjänster]   = useState(initialDay?.tjänster ?? {});
+  // Tjänster — använd namn som nyckel (stabilt), migrera gamla id-baserade värden
+  const [tjänster, setTjänster] = useState(() => {
+    const raw = initialDay?.tjänster ?? {};
+    // Om nycklarna matchar kpiMål-namn redan → använd direkt
+    const kpiNamn = (kpiMål ?? []).map(k => k.namn);
+    const harNamnNycklar = Object.keys(raw).some(k => kpiNamn.includes(k));
+    if (harNamnNycklar || Object.keys(raw).length === 0) return raw;
+    // Migrera: id → namn
+    const migrated = {};
+    (kpiMål ?? []).forEach(k => {
+      const val = raw[k.id] ?? raw[k.namn] ?? 0;
+      if (val > 0) migrated[k.namn] = val;
+    });
+    return migrated;
+  });
   const [bonus, setBonus]         = useState(initialDay?.bonus ?? 0);
   const [datum, setDatum]         = useState(initialDay?.datum ?? "");
   const [savedDefault, setSavedDefault] = useState(false);
@@ -3331,27 +3589,11 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
 
         {/* ── ENSKILT PASS ── */}
         {(formTab === "pass" || initialDay) && (<>
-        <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Dagtyp</div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-          {Object.entries(DAG_META).map(([typ, meta]) => (
-            <button key={typ} onClick={() => changeDagTyp(typ)} style={{
-              flex: 1, padding: "10px 4px", border: "none", borderRadius: 10,
-              background: dagTyp === typ ? meta.color : NC,
-              color: dagTyp === typ ? "#001435" : "#5577aa",
-              fontWeight: 700, fontSize: 12, cursor: "pointer",
-              fontFamily: "Outfit, sans-serif",
-            }}>{meta.emoji}<br/>{meta.label}</button>
-          ))}
-        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-          <TimeControl label="Starttid" value={startMin} onChange={setStartMin} />
-          <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
-        </div>
-
+        {/* 1. DATUM FÖRST */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ color: datum ? "#5577aa" : "#f5a623", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-            Datum <span style={{ color: datum ? "#334" : "#f5a623" }}>*</span>
+            📅 Datum <span style={{ color: datum ? "#334" : "#f5a623" }}>*</span>
           </div>
           <input
             type="date" lang="sv" value={datum}
@@ -3375,13 +3617,34 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
               fontSize: 15, fontFamily: "Outfit, sans-serif", colorScheme: "dark",
             }}
           />
-          {!datum && <div style={{ color: "#f5a623", fontSize: 11, marginTop: 6 }}>Välj datum för att spara passet</div>}
+          {!datum && <div style={{ color: "#f5a623", fontSize: 11, marginTop: 6 }}>Välj datum — dagtyp och tider sätts automatiskt</div>}
           {datum && <div style={{ color: "#5577aa", fontSize: 11, marginTop: 6 }}>
             {(() => { const p = datum.split("-"); return `${parseInt(p[2])}/${parseInt(p[1])}/${p[0]}`; })()}
             {" · "}{(() => { const t = getDagTypFromDate(datum); return t ? {vardag:"Vardag",lördag:"Lördag",söndag:"Söndag",röd:"Röd dag"}[t] : ""; })()}
           </div>}
         </div>
 
+        {/* 2. DAGTYP */}
+        <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Dagtyp</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+          {Object.entries(DAG_META).map(([typ, meta]) => (
+            <button key={typ} onClick={() => changeDagTyp(typ)} style={{
+              flex: 1, padding: "10px 4px", border: "none", borderRadius: 10,
+              background: dagTyp === typ ? meta.color : NC,
+              color: dagTyp === typ ? "#001435" : "#5577aa",
+              fontWeight: 700, fontSize: 12, cursor: "pointer",
+              fontFamily: "Outfit, sans-serif",
+            }}>{meta.emoji}<br/>{meta.label}</button>
+          ))}
+        </div>
+
+        {/* 3. TIDER */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+          <TimeControl label="Starttid" value={startMin} onChange={setStartMin} />
+          <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
+        </div>
+
+        {/* 4. PASSTYP */}
         <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Passtyp</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
           {[["sälj", "💼 Säljdag", G], ["annan", "🔧 Kassa / Lager", "#f5a623"]].map(([val, label, color]) => (
@@ -3411,9 +3674,9 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
                   <div key={kpi.id}>
                     <div style={{ color: "#5577aa", fontSize: 11, marginBottom: 4 }}>{kpi.namn || "KPI"} (mål: {kpi.mål})</div>
                     <input type="number" min={0} step={1}
-                      value={tjänster[kpi.id] ?? ""}
+                      value={tjänster[kpi.namn] ?? tjänster[kpi.id] ?? ""}
                       placeholder="0"
-                      onChange={e => setTjänster(prev => ({ ...prev, [kpi.id]: parseFloat(e.target.value) || 0 }))}
+                      onChange={e => setTjänster(prev => ({ ...prev, [kpi.namn]: parseFloat(e.target.value) || 0 }))}
                       style={{ width: "100%", background: ND, border: `1px solid #f5a62344`, color: "#f5a623", borderRadius: 8, padding: "10px 10px", fontSize: 16, fontFamily: "Rajdhani, sans-serif", fontWeight: 700 }}
                     />
                   </div>
@@ -3567,7 +3830,7 @@ function SettingsPanel({ settings, setSettings, onRunOnboarding }) {
               transition: "left .2s",
             }} />
           </div>
-          <span style={{ color: "#c8deff", fontSize: 14 }}>Visa semesterlön (+12%)</span>
+          <span style={{ color: "#c8deff", fontSize: 14 }}>Visa semesterlön (+13%)</span>
         </div>
       </div>
 
@@ -3814,7 +4077,7 @@ function OnboardingModal({ initialSettings, onDone }) {
             <div style={{ color: "#5577aa", fontSize: 14, textAlign: "center", marginBottom: 28 }}>Hur hanteras din semester?</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
-                ["månadsvis", "💰 Månadsvis +12%", "Semestertillägget betalas ut varje månad direkt på lönen — vanligast för timanställda"],
+                ["månadsvis", "💰 Månadsvis +13%", "Semestertillägget betalas ut varje månad direkt på lönen — vanligast för timanställda"],
                 ["dagar", "📅 Semesterdagar separat", "Du sparar semester och tar ut som lediga dagar med semesterlön"],
               ].map(([val, titel, desc]) => (
                 <button key={val} onClick={() => setSemTyp(val)} style={{
