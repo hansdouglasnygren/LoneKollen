@@ -593,7 +593,7 @@ export default function LöneKollen() {
                               {p.specialAktiverad && <div style={{ background: "#f5a62333", border: "1px solid #f5a62366", borderRadius: 20, padding: "2px 8px", fontSize: 10, color: "#f5a623" }}>💎 Special</div>}
                             </div>
                             <div style={{ color: "#5577aa", fontSize: 11, marginTop: 2 }}>
-                              {p.startDatum?.slice(5).replace("-","/")} – {p.slutDatum?.slice(5).replace("-","/")} · {p.säljDagar} pass
+                              {(() => { const [y,m,d] = (p.startDatum ?? "").split("-"); return `${d}/${m}`; })()} – {(() => { const [y,m,d] = (p.slutDatum ?? "").split("-"); return `${d}/${m}/${y}`; })()} · {p.säljDagar} pass
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -686,23 +686,25 @@ export default function LöneKollen() {
                         </div>
                         {passExpanded && pDays.length > 0 && (
                           <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
-                            {pDays.map(day => {
+                            {[...pDays].sort((a,b) => (b.datum ?? "").localeCompare(a.datum ?? "")).map(day => {
                               const meta = DAG_META[day.dagTyp];
                               const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
                               const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
                               const bonus = day.bonus ?? 0;
-                              const tbProv = day.passTyp === "sälj"
-                                ? (day.tb ?? 0) * ((p.aktivStege?.procent ?? 0) + (p.kpiProcent ?? 0)) / 100
+                              // Provision per pass = passets andel av total provision
+                              const tbProv = day.passTyp === "sälj" && p.totalTB > 0
+                                ? (day.tb ?? 0) / p.totalTB * p.tbProv
                                 : 0;
                               const tot = pay + prov + bonus + tbProv;
                               const h = (day.endMin - day.startMin) / 60;
+                              const datumEU = day.datum ? (() => { const [y,m,d] = day.datum.split("-"); return `${d}/${m}/${y}`; })() : "";
                               return (
                                 <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}`, animation: "slideUp .2s ease" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                       <span style={{ fontSize: 18 }}>{meta.emoji}</span>
                                       <div>
-                                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 11 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{datumEU ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 11 }}> · {datumEU}</span> : ""}</div>
                                         <div style={{ color: "#5577aa", fontSize: 11 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} · {h.toFixed(1).replace(".", ",")}h</div>
                                       </div>
                                     </div>
@@ -752,13 +754,14 @@ export default function LöneKollen() {
                             const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
                             const bonus = day.bonus ?? 0;
                             const tot = pay + (day.skott ?? 0) + bonus;
+                            const datumEU = day.datum ? (() => { const [y,m,d] = day.datum.split("-"); return `${d}/${m}/${y}`; })() : "";
                             return (
                               <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}` }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <span style={{ fontSize: 18 }}>{meta.emoji}</span>
                                     <div>
-                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontSize: 11 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>{meta.label}{datumEU ? <span style={{ color: "#5577aa", fontSize: 11 }}> · {datumEU}</span> : ""}</div>
                                       <div style={{ color: "#5577aa", fontSize: 11 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)}</div>
                                     </div>
                                   </div>
@@ -1008,18 +1011,19 @@ export default function LöneKollen() {
                             const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
                             const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
                             const bonus = day.bonus ?? 0;
-                            const tbProv = day.passTyp === "sälj"
-                              ? (day.tb ?? 0) * ((summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0)) / 100
+                            const tbProv = day.passTyp === "sälj" && summary.totalTB > 0
+                              ? (day.tb ?? 0) / summary.totalTB * summary.tbProv
                               : 0;
                             const tot = pay + prov + bonus + tbProv;
                             const h = (day.endMin - day.startMin) / 60;
+                            const datumEU = day.datum ? (() => { const [y,m,d] = day.datum.split("-"); return `${d}/${m}/${y}`; })() : "";
                             return (
                               <div key={day.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: `4px solid ${meta.color}`, animation: "slideUp .2s ease" }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <span style={{ fontSize: 20 }}>{meta.emoji}</span>
                                     <div>
-                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}{day.datum ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 12 }}> · {day.datum.slice(5).replace("-", "/")}</span> : ""}</div>
+                                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{meta.label}{datumEU ? <span style={{ color: "#5577aa", fontWeight: 400, fontSize: 12 }}> · {datumEU}</span> : ""}</div>
                                       <div style={{ color: "#5577aa", fontSize: 12 }}>{minToHHMM(day.startMin)} – {minToHHMM(day.endMin)} &nbsp;·&nbsp; {h.toFixed(2).replace(".", ",")}h</div>
                                     </div>
                                   </div>
@@ -1582,7 +1586,7 @@ export default function LöneKollen() {
                             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                               <span style={{ fontSize:22 }}>{DAG_META[bästaLön.dagTyp]?.emoji}</span>
                               <div>
-                                <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaLön.dagTyp]?.label}{bästaLön.datum ? ` · ${bästaLön.datum.slice(5).replace("-","/")}` : ""}</div>
+                                <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaLön.dagTyp]?.label}{bästaLön.datum ? ` · ${(() => { const [y,m,d] = bästaLön.datum.split("-"); return `${d}/${m}/${y}`; })()}` : ""}</div>
                                 <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bästaLön.startMin)} – {minToHHMM(bästaLön.endMin)}</div>
                               </div>
                             </div>
@@ -1607,7 +1611,7 @@ export default function LöneKollen() {
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                             <span style={{ fontSize:20 }}>{DAG_META[bästaTB.dagTyp]?.emoji}</span>
                             <div>
-                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTB.dagTyp]?.label}{bästaTB.datum ? ` · ${bästaTB.datum.slice(5).replace("-","/")}` : ""}</div>
+                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTB.dagTyp]?.label}{bästaTB.datum ? ` · ${(() => { const [y,m,d] = bästaTB.datum.split("-"); return `${d}/${m}/${y}`; })()}` : ""}</div>
                               <div style={{ color:"#5577aa", fontSize:12 }}>{minToHHMM(bästaTB.startMin)} – {minToHHMM(bästaTB.endMin)}</div>
                             </div>
                           </div>
@@ -1626,7 +1630,7 @@ export default function LöneKollen() {
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                             <span style={{ fontSize:20 }}>{DAG_META[bästaTjänster.dagTyp]?.emoji}</span>
                             <div>
-                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTjänster.dagTyp]?.label}{bästaTjänster.datum ? ` · ${bästaTjänster.datum.slice(5).replace("-","/")}` : ""}</div>
+                              <div style={{ color:"#fff", fontWeight:600 }}>{DAG_META[bästaTjänster.dagTyp]?.label}{bästaTjänster.datum ? ` · ${(() => { const [y,m,d] = bästaTjänster.datum.split("-"); return `${d}/${m}/${y}`; })()}` : ""}</div>
                             </div>
                           </div>
                           <div style={{ color:"#f5a623", fontFamily:"Rajdhani, sans-serif", fontWeight:800, fontSize:24 }}>
@@ -2294,6 +2298,20 @@ export default function LöneKollen() {
               }
               return mData.bonusAktiv ?? false;
             } catch { return mData.bonusAktiv ?? false; }
+          }}
+          getAktivProcent={(d) => {
+            try {
+              if (perioder && d) {
+                const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
+                if (p) {
+                  const ps = p.tbStege ?? [];
+                  const pSnitt = p.säljDagar > 0 ? p.totalTB / p.säljDagar : 0;
+                  const aktiv = [...ps].reverse().find(s => pSnitt >= s.snitt) ?? ps[0] ?? { procent: 0 };
+                  return (aktiv.procent ?? 0) + (p.kpiProcent ?? 0);
+                }
+              }
+              return (summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0);
+            } catch { return 0; }
           }}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => {
@@ -3379,7 +3397,7 @@ function getDagTypFromDate(dateStr) {
   return "vardag";
 }
 
-function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv, getPeriodBonusAktiv }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv, getPeriodBonusAktiv, getAktivProcent }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
   const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
 
@@ -3435,7 +3453,12 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const pay     = calcDayPay(dagTyp, startMin, endMin, settings.timlön);
   const basePay = ((endMin - startMin) - breakMin) / 60 * settings.timlön;
   const ob      = pay - basePay;
-  const total   = pay + (prov || 0);
+  const tbVal   = parseFloat(tb) || 0;
+  const skottVal = parseFloat(skott) || 0;
+  // TB-provision i preview — använd aktuell serie-procent som uppskattning
+  const previewProcent = getAktivProcent ? (getAktivProcent(datum) ?? 0) : 0;
+  const previewTbProv = passTyp === "sälj" && tbVal > 0 ? tbVal * previewProcent / 100 : 0;
+  const total   = pay + (passTyp === "annan" ? skottVal : 0) + bonus;
 
   function nudge(setter, cur, delta, min = 0, max = 24*60) {
     setter(Math.min(max, Math.max(min, cur + delta)));
@@ -3699,7 +3722,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
             {minToHHMM(startMin)} – {minToHHMM(endMin)} &nbsp;·&nbsp; {((endMin - startMin)/60).toFixed(2).replace(".", ",")} timmar
             {breakMin > 0 && <span style={{ color: "#f5a623" }}> &nbsp;·&nbsp; {breakMin} min rast</span>}
           </div>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ color: "#8899cc", fontSize: 11 }}>Timlön</div>
               <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{fmt(basePay)}</div>
@@ -3708,18 +3731,44 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
               <div style={{ color: "#8899cc", fontSize: 11 }}>OB-tillägg</div>
               <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>+{fmt(ob)}</div>
             </div>}
-            {passTyp === "sälj" && tb > 0 && <div>
+            {passTyp === "sälj" && tbVal > 0 && <div>
               <div style={{ color: "#8899cc", fontSize: 11 }}>TB</div>
-              <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Number(tb).toLocaleString("sv-SE")} kr</div>
+              <div style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{tbVal.toLocaleString("sv-SE")} kr</div>
             </div>}
-            {passTyp === "annan" && skott > 0 && <div>
+            {passTyp === "annan" && skottVal > 0 && <div>
               <div style={{ color: "#8899cc", fontSize: 11 }}>Skottpengar</div>
-              <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{Number(skott).toLocaleString("sv-SE")} kr</div>
+              <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{skottVal.toLocaleString("sv-SE")} kr</div>
+            </div>}
+            {bonus > 0 && <div>
+              <div style={{ color: "#8899cc", fontSize: 11 }}>🏆 Bonus</div>
+              <div style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>+{fmt(bonus)}</div>
             </div>}
           </div>
-          <div style={{ borderTop: `1px solid ${N}`, marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ color: "#8899cc", fontSize: 12 }}>Totalt detta pass</span>
-            <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 22 }}>{fmt(total)}</span>
+          <div style={{ borderTop: `1px solid ${N}`, marginTop: 10, paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: "#8899cc", fontSize: 12 }}>Timlön + OB</span>
+              <span style={{ color: "#c8deff", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>{fmt(pay)}</span>
+            </div>
+            {passTyp === "sälj" && tbVal > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                <span style={{ color: "#8899cc", fontSize: 12 }}>TB {tbVal.toLocaleString("sv-SE")} kr</span>
+                <span style={{ color: "#5577aa", fontSize: 12, fontStyle: "italic" }}>räknas med periodens snitt</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${N}` }}>
+              <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Totalt detta pass (exkl. TB-prov)</span>
+              <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 24 }}>{fmt(pay + (passTyp === "annan" ? skottVal : 0) + bonus)}</span>
+            </div>
+            {passTyp === "sälj" && tbVal > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                <span style={{ color: "#5577aa", fontSize: 12 }}>
+                  {previewProcent > 0 ? `Inkl. TB-prov (${previewProcent}% serie)` : "Inkl. TB-prov (aktuell serie)"}
+                </span>
+                <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>
+                  ≈ {fmt(pay + (previewProcent > 0 ? tbVal * previewProcent / 100 : tbVal * 0.07) + bonus)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
