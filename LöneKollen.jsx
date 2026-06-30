@@ -31,8 +31,8 @@ function getBreakMin(dagTyp) {
 }
 
 // Wrapper som automatiskt drar av rast innan löneberäkning
-function calcDayPay(dagTyp, startMin, endMin, timlön) {
-  const breakMin = getBreakMin(dagTyp);
+function calcDayPay(dagTyp, startMin, endMin, timlön, customRast) {
+  const breakMin = customRast !== undefined && customRast !== null ? customRast : getBreakMin(dagTyp);
   return calcShiftPay(dagTyp, startMin, endMin - breakMin, timlön);
 }
 
@@ -260,7 +260,7 @@ export default function LöneKollen() {
     days.forEach(d => {
       const breakMin = getBreakMin(d.dagTyp);
       const normal = ((d.endMin - d.startMin) - breakMin) / 60 * settings.timlön;
-      const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+      const total  = calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön, d.customRast);
       baseLön += normal;
       obLön   += (total - normal);
       if (d.passTyp === "annan") skottTotal += (d.skott ?? 0);
@@ -361,7 +361,7 @@ export default function LöneKollen() {
         const stege = md.tbStege ?? settings.tbStege ?? [];
         let b = 0, totalTB = 0, säljDagar = 0;
         ds.forEach(d => {
-          b += calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön);
+          b += calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön, d.customRast);
           if (d.passTyp === "annan") { b += (d.skott ?? 0); }
           else { totalTB += (d.tb ?? 0); säljDagar++; }
         });
@@ -688,7 +688,7 @@ export default function LöneKollen() {
                           <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
                             {[...pDays].sort((a,b) => (b.datum ?? "").localeCompare(a.datum ?? "")).map(day => {
                               const meta = DAG_META[day.dagTyp];
-                              const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                              const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön, day.customRast);
                               const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
                               const bonus = day.bonus ?? 0;
                               // Provision per pass = passets andel av total provision
@@ -751,7 +751,7 @@ export default function LöneKollen() {
                         <div style={{ background: ND, borderRadius: "0 0 12px 12px", padding: "8px 10px" }}>
                           {oDays.map(day => {
                             const meta = DAG_META[day.dagTyp];
-                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön, day.customRast);
                             const bonus = day.bonus ?? 0;
                             const tot = pay + (day.skott ?? 0) + bonus;
                             const datumEU = day.datum ? (() => { const [y,m,d] = day.datum.split("-"); return `${d}/${m}/${y}`; })() : "";
@@ -1008,7 +1008,7 @@ export default function LöneKollen() {
                           )}
                           {sortedDays.map(day => {
                             const meta = DAG_META[day.dagTyp];
-                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön);
+                            const pay  = calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön, day.customRast);
                             const prov = day.passTyp === "annan" ? (day.skott ?? 0) : 0;
                             const bonus = day.bonus ?? 0;
                             const tbProv = day.passTyp === "sälj" && summary.totalTB > 0
@@ -1659,7 +1659,7 @@ export default function LöneKollen() {
                   const kpiP         = summary?.kpiProcent ?? 0;
                   const totalProcent = (aktivStege_?.procent ?? 0) + kpiP;
                   const lönPerPass   = calcDayPay(sparkDagTyp, sparkStart, sparkEnd, settings.timlön);
-                  const projLön      = days.reduce((s, d) => s + calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön), 0)
+                  const projLön      = days.reduce((s, d) => s + calcDayPay(d.dagTyp, d.startMin, d.endMin, settings.timlön, d.customRast), 0)
                                      + passKvar * lönPerPass;
 
                   // Specialregel för aktiv period
@@ -2304,6 +2304,8 @@ export default function LöneKollen() {
               if (perioder && d) {
                 const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
                 if (p) {
+                  // Om specialregel — returnera 0 så preview inte visar fel serie
+                  if (p.specialRegel?.aktiv) return null;
                   const ps = p.tbStege ?? [];
                   const pSnitt = p.säljDagar > 0 ? p.totalTB / p.säljDagar : 0;
                   const aktiv = [...ps].reverse().find(s => pSnitt >= s.snitt) ?? ps[0] ?? { procent: 0 };
@@ -2312,6 +2314,15 @@ export default function LöneKollen() {
               }
               return (summary.aktivStege?.procent ?? 0) + (summary.kpiProcent ?? 0);
             } catch { return 0; }
+          }}
+          getSpecialRegel={(d) => {
+            try {
+              if (perioder && d) {
+                const p = perioder.find(p => d >= p.startDatum && d <= p.slutDatum);
+                if (p?.specialRegel?.aktiv) return p.specialRegel;
+              }
+              return null;
+            } catch { return null; }
           }}
           initialDay={editId ? days.find(d => d.id === editId) : null}
           onSave={day => {
@@ -2581,10 +2592,10 @@ function CelebrationModal({ celebration, summary, settings, monthStege, onClose 
           <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Passets sammanfattning</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[
-              ["Timlön ink OB", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön))],
+              ["Timlön ink OB", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön, day.customRast))],
               ["TB-provision", fmt(tbProv)],
               ...(bonus > 0 ? [["🏆 Tävlingsbonus", fmt(bonus)]] : []),
-              ["Totalt brutto", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön) + tbProv + bonus)],
+              ["Totalt brutto", fmt(calcDayPay(day.dagTyp, day.startMin, day.endMin, settings.timlön, day.customRast) + tbProv + bonus)],
             ].map(([label, val]) => (
               <div key={label} style={{ background: NC, borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ color: "#5577aa", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>{label}</div>
@@ -3397,7 +3408,7 @@ function getDagTypFromDate(dateStr) {
   return "vardag";
 }
 
-function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv, getPeriodBonusAktiv, getAktivProcent }) {
+function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onCancel, kpiMål, bonusAktiv, getPeriodBonusAktiv, getAktivProcent, getSpecialRegel }) {
   const getDefaults = (typ) => settings.defaults?.[typ] || {};
   const activeKPIs  = (kpiMål ?? []).filter(k => k.aktiv !== false);
 
@@ -3405,6 +3416,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
   const [dagTyp, setDagTyp]       = useState(initialDay?.dagTyp  ?? "vardag");
   const [startMin, setStartMin]   = useState(initialDay?.startMin ?? getDefaults("vardag").start ?? 9*60+45);
   const [endMin, setEndMin]       = useState(initialDay?.endMin   ?? getDefaults("vardag").end   ?? 19*60);
+  const [customRast, setCustomRast] = useState(initialDay?.customRast ?? null); // null = använd default
   const [prov, setProv]           = useState(initialDay?.provision ?? getDefaults("vardag").prov ?? 400);
   const [passTyp, setPassTyp]     = useState(initialDay?.passTyp ?? "sälj");
   const [tb, setTb]               = useState(initialDay?.tb ?? "");
@@ -3449,15 +3461,15 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
     }
   }
 
-  const breakMin  = getBreakMin(dagTyp);
-  const pay     = calcDayPay(dagTyp, startMin, endMin, settings.timlön);
-  const basePay = ((endMin - startMin) - breakMin) / 60 * settings.timlön;
+  const breakMin  = customRast !== null ? customRast : getBreakMin(dagTyp);
+  const pay     = calcShiftPay(dagTyp, startMin, endMin - breakMin, settings.timlön);
+  const basePay = (endMin - startMin - breakMin) / 60 * settings.timlön;
   const ob      = pay - basePay;
   const tbVal   = parseFloat(tb) || 0;
   const skottVal = parseFloat(skott) || 0;
-  // TB-provision i preview — använd aktuell serie-procent som uppskattning
+
   const previewProcent = getAktivProcent ? (getAktivProcent(datum) ?? 0) : 0;
-  const previewTbProv = passTyp === "sälj" && tbVal > 0 ? tbVal * previewProcent / 100 : 0;
+  const previewSpecial = getSpecialRegel ? getSpecialRegel(datum) : null;
   const total   = pay + (passTyp === "annan" ? skottVal : 0) + bonus;
 
   function nudge(setter, cur, delta, min = 0, max = 24*60) {
@@ -3661,10 +3673,36 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
           ))}
         </div>
 
-        {/* 3. TIDER */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+        {/* 3. TIDER + RAST */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 12 }}>
           <TimeControl label="Starttid" value={startMin} onChange={setStartMin} />
           <TimeControl label="Sluttid"  value={endMin}   onChange={setEndMin}   />
+        </div>
+
+        {/* Rasttid */}
+        <div style={{ background: NC, border: `1px solid ${N}`, borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ color: "#5577aa", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+              ☕ Rast
+            </div>
+            {customRast !== null && (
+              <button onClick={() => setCustomRast(null)} style={{
+                background: "transparent", border: "none", color: "#5577aa", fontSize: 11,
+                cursor: "pointer", fontFamily: "Outfit, sans-serif", padding: 0,
+              }}>↩ Återställ ({getBreakMin(dagTyp)} min)</button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[0, 15, 20, 30, 45, 60].map(min => (
+              <button key={min} onClick={() => setCustomRast(min)} style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, cursor: "pointer",
+                background: breakMin === min ? (min === 0 ? "#1a0000" : G) : NC,
+                border: `1px solid ${breakMin === min ? (min === 0 ? "#aa2222" : G) : N}`,
+                color: breakMin === min ? (min === 0 ? "#ff6666" : "#001435") : "#5577aa",
+                fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 14,
+              }}>{min === 0 ? "Ingen" : `${min}m`}</button>
+            ))}
+          </div>
         </div>
 
         {/* 4. PASSTYP */}
@@ -3759,16 +3797,42 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
               <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Totalt detta pass (exkl. TB-prov)</span>
               <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 800, fontSize: 24 }}>{fmt(pay + (passTyp === "annan" ? skottVal : 0) + bonus)}</span>
             </div>
-            {passTyp === "sälj" && tbVal > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                <span style={{ color: "#5577aa", fontSize: 12 }}>
-                  {previewProcent > 0 ? `Inkl. TB-prov (${previewProcent}% serie)` : "Inkl. TB-prov (aktuell serie)"}
-                </span>
-                <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>
-                  ≈ {fmt(pay + (previewProcent > 0 ? tbVal * previewProcent / 100 : tbVal * 0.07) + bonus)}
-                </span>
-              </div>
-            )}
+            {passTyp === "sälj" && tbVal > 0 && (() => {
+              if (previewSpecial) {
+                // Specialregel — visa uppskattning baserat på 7% upp till gräns + 10% på överskott
+                const gräns = previewSpecial.snittGräns ?? 0;
+                const under = Math.min(tbVal, gräns);
+                const över  = Math.max(0, tbVal - gräns);
+                const uppskattning = under * (previewSpecial.snittProcent ?? 7) / 100 + över * (previewSpecial.överskottProcent ?? 10) / 100;
+                return (
+                  <div style={{ marginTop: 4, background: "#1a1200", border: "1px solid #f5a62344", borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ color: "#f5a623", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                      💎 Specialregel — uppskattning per pass
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#5577aa", fontSize: 12 }}>
+                        {(previewSpecial.snittProcent ?? 7)}% × {Math.round(under).toLocaleString("sv-SE")} kr
+                        {över > 0 ? ` + ${previewSpecial.överskottProcent ?? 10}% × ${Math.round(över).toLocaleString("sv-SE")} kr` : ""}
+                      </span>
+                      <span style={{ color: "#f5a623", fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 16 }}>
+                        ≈ {fmt(pay + uppskattning + bonus)}
+                      </span>
+                    </div>
+                    <div style={{ color: "#5577aa", fontSize: 10, marginTop: 4 }}>
+                      * Exakt belopp beräknas på hela periodens snitt
+                    </div>
+                  </div>
+                );
+              }
+              return previewProcent > 0 ? (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                  <span style={{ color: "#5577aa", fontSize: 12 }}>Inkl. TB-prov ({previewProcent}% serie)</span>
+                  <span style={{ color: G, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, fontSize: 18 }}>
+                    ≈ {fmt(pay + tbVal * previewProcent / 100 + bonus)}
+                  </span>
+                </div>
+              ) : null;
+            })()}
           </div>
         </div>
 
@@ -3813,6 +3877,7 @@ function DayForm({ settings, initialDay, onSave, onSaveMonth, onSaveDefault, onC
         <button onClick={() => onSave({
           id: initialDay?.id ?? uid(),
           dagTyp, startMin, endMin,
+          customRast: customRast !== null ? customRast : undefined,
           passTyp,
           tb: passTyp === "sälj" ? (parseFloat(tb) || 0) : 0,
           skott: passTyp === "annan" ? (parseFloat(skott) || 0) : 0,
